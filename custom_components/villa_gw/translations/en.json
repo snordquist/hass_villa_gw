@@ -12,7 +12,8 @@
           "live_view_duration": "Live-view duration (seconds)",
           "poll_interval_ms": "Event poll interval (ms) — 1000 = 1 s",
           "enable_log_tail": "Enable Telnet log-tail (faster, but requires open telnet)",
-          "enable_mqtt_bridge": "Enable MQTT bridge (publish events to HA Mosquitto, MQTT-Discovery)",
+          "enable_mqtt_bridge": "Enable MQTT bridge (publish events to HA Mosquitto)",
+          "enable_mqtt_discovery": "Publish MQTT-Discovery configs (auto-creates entities — disable when using the custom-component)",
           "mqtt_base_topic": "MQTT base topic"
         }
       }

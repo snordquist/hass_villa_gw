@@ -36,12 +36,14 @@ from .const import (
     BACKOFF_MAX_S,
     CONF_ENABLE_LOG_TAIL,
     CONF_ENABLE_MQTT_BRIDGE,
+    CONF_ENABLE_MQTT_DISCOVERY,
     CONF_LIVE_VIEW_DURATION,
     CONF_MQTT_BASE_TOPIC,
     CONF_OUTDOOR_ADDRESS,
     CONF_POLL_INTERVAL_MS,
     DEFAULT_ENABLE_LOG_TAIL,
     DEFAULT_ENABLE_MQTT_BRIDGE,
+    DEFAULT_ENABLE_MQTT_DISCOVERY,
     DEFAULT_LIVE_VIEW_DURATION,
     DEFAULT_MQTT_BASE_TOPIC,
     DEFAULT_OUTDOOR_ADDRESS,
@@ -154,6 +156,9 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 outdoor_address=opts.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS),
                 live_view_duration=opts.get(
                     CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION
+                ),
+                publish_discovery=opts.get(
+                    CONF_ENABLE_MQTT_DISCOVERY, DEFAULT_ENABLE_MQTT_DISCOVERY
                 ),
             )
             await self.mqtt_bridge.async_start()

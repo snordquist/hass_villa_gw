@@ -16,6 +16,7 @@ from .api import VillaGwAuthError, VillaGwClient, VillaGwConnectionError
 from .const import (
     CONF_ENABLE_LOG_TAIL,
     CONF_ENABLE_MQTT_BRIDGE,
+    CONF_ENABLE_MQTT_DISCOVERY,
     CONF_LIVE_VIEW_DURATION,
     CONF_MQTT_BASE_TOPIC,
     CONF_OUTDOOR_ADDRESS,
@@ -24,6 +25,7 @@ from .const import (
     CONF_WEB_USERNAME,
     DEFAULT_ENABLE_LOG_TAIL,
     DEFAULT_ENABLE_MQTT_BRIDGE,
+    DEFAULT_ENABLE_MQTT_DISCOVERY,
     DEFAULT_LIVE_VIEW_DURATION,
     DEFAULT_MQTT_BASE_TOPIC,
     DEFAULT_OUTDOOR_ADDRESS,
@@ -51,6 +53,7 @@ STEP_USER_SCHEMA = vol.Schema(
         ),
         vol.Required(CONF_ENABLE_LOG_TAIL, default=DEFAULT_ENABLE_LOG_TAIL): bool,
         vol.Required(CONF_ENABLE_MQTT_BRIDGE, default=DEFAULT_ENABLE_MQTT_BRIDGE): bool,
+        vol.Required(CONF_ENABLE_MQTT_DISCOVERY, default=DEFAULT_ENABLE_MQTT_DISCOVERY): bool,
         vol.Required(CONF_MQTT_BASE_TOPIC, default=DEFAULT_MQTT_BASE_TOPIC): str,
     }
 )
@@ -144,6 +147,10 @@ class VillaGwOptionsFlow(OptionsFlow):
                     vol.Required(
                         CONF_ENABLE_MQTT_BRIDGE,
                         default=current.get(CONF_ENABLE_MQTT_BRIDGE, DEFAULT_ENABLE_MQTT_BRIDGE),
+                    ): bool,
+                    vol.Required(
+                        CONF_ENABLE_MQTT_DISCOVERY,
+                        default=current.get(CONF_ENABLE_MQTT_DISCOVERY, DEFAULT_ENABLE_MQTT_DISCOVERY),
                     ): bool,
                     vol.Required(
                         CONF_MQTT_BASE_TOPIC,

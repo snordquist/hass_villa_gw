@@ -262,18 +262,19 @@ class VillaGwMqttBridge:
 
     async def _publish_discovery(self) -> None:
         """Publish all discovery configs (retained, qos=1)."""
-        if not self.publish_discovery:
-            return
-        for topic, payload in self._discovery_configs():
+        configs = self._discovery_configs()
+        for topic, payload in configs:
             await self._publish(topic, payload, retain=True, qos=1)
-        _LOGGER.info("MQTT-discovery: %d entities published", len(self._discovery_configs()))
+        _LOGGER.info("MQTT-discovery: %d entities published", len(configs))
 
     async def _unpublish_discovery(self) -> None:
-        """Send empty retained messages to remove discovery entries."""
-        if not self.publish_discovery:
-            return
-        for topic, _ in self._discovery_configs():
+        """Send empty retained messages to remove any discovery entries we
+        may have published in a previous run. Always safe to call — HA's
+        MQTT-Discovery treats empty retained payload as 'forget this entity'."""
+        configs = self._discovery_configs()
+        for topic, _ in configs:
             await self._publish(topic, "", retain=True, qos=1)
+        _LOGGER.debug("MQTT-discovery: %d entries cleared", len(configs))
 
     # ─────────────────────────────────────────────── lifecycle
 
@@ -301,10 +302,19 @@ class VillaGwMqttBridge:
         )
         self._started = True
 
-        # Publish discovery configs so HA auto-creates entities (retained)
-        await self._publish_discovery()
+        # Discovery management:
+        # - if enabled: publish discovery configs (retained) → HA auto-creates
+        # - if disabled: unpublish ANY previously retained discovery configs
+        #   from earlier runs, so toggling discovery off cleans up stale entities
+        if self.publish_discovery:
+            await self._publish_discovery()
+        else:
+            await self._unpublish_discovery()
 
-        _LOGGER.info("MQTT-bridge active under %s/%s/+", self.base, self.did)
+        _LOGGER.info(
+            "MQTT-bridge active under %s/%s/+ (discovery=%s)",
+            self.base, self.did, "on" if self.publish_discovery else "off",
+        )
 
     async def async_stop(self) -> None:
         if not self._started:

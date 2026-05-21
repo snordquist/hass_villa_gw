@@ -12,7 +12,8 @@
           "live_view_duration": "Live-Sicht-Dauer (Sekunden)",
           "poll_interval_ms": "Polling-Intervall für Events (ms) — 1000 = 1 s",
           "enable_log_tail": "Telnet-Log-Tail aktivieren (schneller, braucht offenes Telnet)",
-          "enable_mqtt_bridge": "MQTT-Bridge aktivieren (Events nach HA-Mosquitto, MQTT-Discovery)",
+          "enable_mqtt_bridge": "MQTT-Bridge aktivieren (Events nach HA-Mosquitto)",
+          "enable_mqtt_discovery": "MQTT-Discovery-Configs publishen (legt Entities automatisch an — aus, wenn Custom-Component genutzt wird)",
           "mqtt_base_topic": "MQTT-Base-Topic"
         }
       }

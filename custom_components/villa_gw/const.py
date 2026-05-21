@@ -15,6 +15,7 @@ CONF_LIVE_VIEW_DURATION = "live_view_duration"
 CONF_ENABLE_LOG_TAIL = "enable_log_tail"
 CONF_POLL_INTERVAL_MS = "poll_interval_ms"
 CONF_ENABLE_MQTT_BRIDGE = "enable_mqtt_bridge"
+CONF_ENABLE_MQTT_DISCOVERY = "enable_mqtt_discovery"
 CONF_MQTT_BASE_TOPIC = "mqtt_base_topic"
 
 # Defaults
@@ -26,6 +27,7 @@ DEFAULT_KEY_INDEX = 1  # callList.id, almost always 1
 DEFAULT_ENABLE_LOG_TAIL = False  # opt-in fast-path (needs telnet open)
 DEFAULT_POLL_INTERVAL_MS = 1000  # 1 s — main event-detection cadence
 DEFAULT_ENABLE_MQTT_BRIDGE = False  # opt-in: publish events to HA-Mosquitto
+DEFAULT_ENABLE_MQTT_DISCOVERY = False  # off → only events, no auto-create
 DEFAULT_MQTT_BASE_TOPIC = "villa_gw"
 
 # Capped exponential backoff for any persistent connection (telnet tail, poll loop)
