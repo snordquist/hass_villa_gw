@@ -27,7 +27,18 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = get_coordinator(hass, entry)
-    async_add_entities([VillaGwDoorLock(coordinator, entry)])
+    lock = VillaGwDoorLock(coordinator, entry)
+    # Ensure the relock task is cancelled on entry-unload (reload), not only
+    # when the entity is removed — otherwise a reload mid-unlock leaves the
+    # task writing state to an entity that no longer belongs to the new entry.
+    entry.async_on_unload(lock._cancel_relock_task)
+    async_add_entities([lock])
+
+
+# Default re-lock delay (s). The relay's actual hold time is configured on the
+# device (parameter.elock_holdtime, default 3 s); we add a small safety margin
+# so the HA-side state flips after the relay has physically closed again.
+_RELOCK_DELAY_S = 5
 
 
 class VillaGwDoorLock(LockEntity):
@@ -46,11 +57,20 @@ class VillaGwDoorLock(LockEntity):
         self._attr_is_locked = True
         self._relock_task: asyncio.Task | None = None
 
-    async def async_will_remove_from_hass(self) -> None:
-        """Cancel the pending re-lock task when the entity is removed."""
+    def _cancel_relock_task(self) -> None:
+        """Cancel a pending re-lock without awaiting it.
+
+        Sync so it can be registered with `entry.async_on_unload`. The task
+        itself handles CancelledError silently — no state writes on a
+        removed entity.
+        """
         if self._relock_task and not self._relock_task.done():
             self._relock_task.cancel()
         self._relock_task = None
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the pending re-lock task when the entity is removed."""
+        self._cancel_relock_task()
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Trigger the door relay."""
@@ -58,24 +78,11 @@ class VillaGwDoorLock(LockEntity):
         self._attr_is_locked = False
         self.async_write_ha_state()
 
-        # Cancel any previous re-lock pending so they don't stack
-        if self._relock_task and not self._relock_task.done():
-            self._relock_task.cancel()
-
-        # Re-lock after the relay's configured hold time
-        # (parameter.elock_holdtime, default 3s — we read from /api/parameter
-        # but a hard-coded 5s is safer if config not yet loaded)
-        hold = 5
-        try:
-            data = self.coordinator.data or {}
-            params = data.get("parameter") or {}
-            hold = int(params.get("elock_holdtime", 3)) + 2
-        except Exception:  # noqa: BLE001
-            pass
+        self._cancel_relock_task()
 
         async def _relock() -> None:
             try:
-                await asyncio.sleep(hold)
+                await asyncio.sleep(_RELOCK_DELAY_S)
             except asyncio.CancelledError:
                 return
             self._attr_is_locked = True

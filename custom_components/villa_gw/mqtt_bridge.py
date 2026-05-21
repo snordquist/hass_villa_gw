@@ -358,7 +358,11 @@ class VillaGwMqttBridge:
         if not self._started and topic != topic_availability(self.base, self.did):
             return
         if isinstance(payload, (dict, list)):
-            payload = json.dumps(payload, separators=(",", ":"))
+            # default=str: defensive against future payloads with datetime/bytes
+            # sub-values. Lossy (datetimes become repr-strings) but the bridge
+            # is a best-effort mirror, not the source of truth — better than
+            # silently dropping the event on a TypeError.
+            payload = json.dumps(payload, separators=(",", ":"), default=str)
         elif not isinstance(payload, (str, bytes)):
             payload = str(payload)
         try:
@@ -428,6 +432,15 @@ class VillaGwMqttBridge:
 
     # ─────────────────────────────────────────────── cmd handler
 
+    @staticmethod
+    def _payload_to_str(payload: Any) -> str:
+        """Normalize msg.payload (bytes-or-str depending on HA version)."""
+        if isinstance(payload, bytes):
+            return payload.decode("utf-8", errors="replace")
+        if isinstance(payload, str):
+            return payload
+        return ""
+
     async def _handle_cmd(self, msg) -> None:
         """Incoming cmd topic → uart2d action."""
         topic = msg.topic
@@ -435,10 +448,11 @@ class VillaGwMqttBridge:
         if cmd not in MQTT_COMMANDS:
             _LOGGER.debug("MQTT-cmd unknown: %s", cmd)
             return
+        raw_payload = self._payload_to_str(msg.payload)
         try:
-            payload = json.loads(msg.payload) if msg.payload else {}
+            payload = json.loads(raw_payload) if raw_payload else {}
         except (ValueError, TypeError):
-            payload = {"raw": msg.payload}
+            payload = {"raw": raw_payload}
 
         def _int(key: str, default: int) -> int:
             """Coerce payload field to int, falling back on garbage input."""
@@ -469,15 +483,25 @@ class VillaGwMqttBridge:
                 await self.client.switch_camera()
             elif cmd == "snapshot":
                 # MJPG-snap goes via avlink, not uart2d
-                await self.client._avlink_query("AT+B MJPG Snap")  # noqa: SLF001
+                await self.client.send_avlink("AT+B MJPG Snap")
             elif cmd == "at_raw":
-                raw = payload.get("command") or (
-                    msg.payload if isinstance(msg.payload, str) else ""
-                )
-                if raw and raw.startswith("AT+B"):
-                    # Send to uart2d (bus-side) — for power users only
-                    await self.client._uart2d_send(raw)  # noqa: SLF001
+                raw = payload.get("command") or raw_payload
+                # Same validation as the HA send_at_command service —
+                # MQTT-broker write access shouldn't bypass it.
+                if not raw or not raw.startswith("AT+B"):
+                    _LOGGER.warning(
+                        "MQTT cmd/at_raw rejected — must start with 'AT+B': %r", raw
+                    )
+                elif len(raw) > 200:
+                    _LOGGER.warning(
+                        "MQTT cmd/at_raw rejected — too long (%d): %r", len(raw), raw[:80]
+                    )
+                elif any(ch in raw for ch in ("\r", "\n", "\x00", ";")):
+                    _LOGGER.warning(
+                        "MQTT cmd/at_raw rejected — illegal char (CR/LF/NUL/;): %r", raw
+                    )
                 else:
-                    _LOGGER.warning("MQTT cmd/at_raw rejected: payload=%r", raw)
+                    # Send to uart2d (bus-side) — for power users only
+                    await self.client.send_uart2d(raw)
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("MQTT cmd %s failed: %s", cmd, err)

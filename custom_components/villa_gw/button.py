@@ -30,15 +30,6 @@ class VillaGwButtonDescription(ButtonEntityDescription):
     action: Callable[[VillaGwClient, dict[str, Any]], Awaitable[None]]
 
 
-def _wake(opts: dict[str, Any]) -> Callable[[VillaGwClient, dict[str, Any]], Awaitable[None]]:
-    async def _do(c: VillaGwClient, _o: dict[str, Any]) -> None:
-        await c.wake_live_view(
-            address=opts.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS),
-            duration=opts.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION),
-        )
-    return _do
-
-
 BUTTONS: tuple[VillaGwButtonDescription, ...] = (
     VillaGwButtonDescription(
         key="wake",

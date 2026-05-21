@@ -26,6 +26,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import VillaGwCoordinator, get_coordinator
@@ -243,20 +244,36 @@ class VillaGwSensor(CoordinatorEntity[VillaGwCoordinator], SensorEntity, Restore
         return self.entity_description.value(self.coordinator)
 
     async def async_added_to_hass(self) -> None:
-        """Restore coordinator state on cold start so sensors keep their values."""
+        """Restore coordinator state on cold start so sensors keep their values.
+
+        Daily counters get a date-stamp check: if the last_updated date is
+        not today (e.g. HA was down across midnight), we treat them as zero
+        instead of restoring the stale value. The midnight `_reset_counters`
+        only fires going forward — without this guard it would never run and
+        the counters would carry yesterday's value indefinitely.
+        """
         await super().async_added_to_hass()
         last = await self.async_get_last_state()
         if not last or last.state in (None, "unknown", "unavailable"):
             return
         key = self.entity_description.key
         coord = self.coordinator
+
+        def _restore_counter(field: str) -> None:
+            if getattr(coord, field):
+                return
+            now_local = dt_util.now()
+            if last.last_updated.astimezone(now_local.tzinfo).date() != now_local.date():
+                return  # stale: previous-day counter, leave at 0
+            setattr(coord, field, int(last.state))
+
         try:
-            if key == "doorbell_count_today" and not coord.doorbell_count_today:
-                coord.doorbell_count_today = int(last.state)
-            elif key == "unlock_count_today" and not coord.unlock_count_today:
-                coord.unlock_count_today = int(last.state)
-            elif key == "call_count_today" and not coord.call_count_today:
-                coord.call_count_today = int(last.state)
+            if key == "doorbell_count_today":
+                _restore_counter("doorbell_count_today")
+            elif key == "unlock_count_today":
+                _restore_counter("unlock_count_today")
+            elif key == "call_count_today":
+                _restore_counter("call_count_today")
             elif key == "last_caller" and not coord.last_caller:
                 coord.last_caller = last.state
             elif key == "last_app_user" and not coord.last_app_user:

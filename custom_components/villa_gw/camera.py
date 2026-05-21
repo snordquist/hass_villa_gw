@@ -38,8 +38,8 @@ class VillaGwCamera(Camera):
     _attr_has_entity_name = True
     _attr_translation_key = "live"
     _attr_supported_features = CameraEntityFeature.STREAM
-    _attr_brand = "HHG / EGB"
-    _attr_model = "Villa GW (AVL20P)"
+    # Brand/model are exposed via DeviceInfo below — the per-entity
+    # _attr_brand/_attr_model would only duplicate them in the camera card.
 
     def __init__(self, coordinator: VillaGwCoordinator, entry: ConfigEntry) -> None:
         super().__init__()

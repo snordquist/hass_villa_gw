@@ -87,13 +87,22 @@ class VillaGwConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during Villa GW setup")
                 errors["base"] = "unknown"
             else:
-                # Use MAC as unique_id so re-adding the same GW doesn't duplicate
-                await self.async_set_unique_id(mac)
-                self._abort_if_unique_id_configured(updates={CONF_HOST: user_input[CONF_HOST]})
-                return self.async_create_entry(
-                    title=f"Villa GW ({user_input[CONF_HOST]})",
-                    data=user_input,
-                )
+                # MAC must be non-empty — empty/missing MAC would break unique_id
+                # uniqueness and produce f-string identifiers with a leading
+                # underscore (e.g. "_state" for entity_id). Reject upfront so
+                # the user sees a clear error rather than silently corrupting
+                # the entry's identity.
+                if not mac:
+                    _LOGGER.error("Villa GW returned empty MAC — cannot proceed")
+                    errors["base"] = "cannot_connect"
+                else:
+                    # Use MAC as unique_id so re-adding the same GW doesn't duplicate
+                    await self.async_set_unique_id(mac)
+                    self._abort_if_unique_id_configured(updates={CONF_HOST: user_input[CONF_HOST]})
+                    return self.async_create_entry(
+                        title=f"Villa GW ({user_input[CONF_HOST]})",
+                        data=user_input,
+                    )
 
         return self.async_show_form(
             step_id="user",

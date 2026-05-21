@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from ._backoff import Backoff
 from .api import VillaGwClient, VillaGwConnectionError
@@ -94,6 +95,10 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Bg-tasks
         self._poll_task: asyncio.Task | None = None
         self._tail_task: asyncio.Task | None = None
+        # Auto-clear ticker — runs independently of the poll loop so doorbell
+        # / live-view pulses still expire when the GW is offline and the poll
+        # loop is in a long exponential backoff.
+        self._auto_clear_unsub = None  # type: ignore[assignment]
 
         # Optional MQTT-Bridge (set up by async_start_tasks if enabled)
         self.mqtt_bridge = None  # type: ignore[assignment]
@@ -142,6 +147,17 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._poll_loop(interval),
             name=f"villa_gw_poll_{self.client.host}",
         )
+        # Decoupled auto-clear tick: 1s cadence, independent of poll backoff.
+        # Keeps doorbell pulse + stuck live-view-flag from lingering when the
+        # GW is offline and the poll loop is in a long exponential backoff.
+        live_view_max_s = (
+            opts.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION) + 30
+        )
+        self._auto_clear_unsub = async_track_time_interval(
+            self.hass,
+            lambda _now: self._tick_auto_clear(live_view_max_s),
+            timedelta(seconds=1),
+        )
         if opts.get(CONF_ENABLE_LOG_TAIL, DEFAULT_ENABLE_LOG_TAIL):
             self._tail_task = self.hass.async_create_background_task(
                 self.client.stream_log_events(self._on_log_event),
@@ -169,6 +185,9 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.mqtt_bridge.async_start()
 
     async def async_stop_tasks(self) -> None:
+        if self._auto_clear_unsub is not None:
+            self._auto_clear_unsub()
+            self._auto_clear_unsub = None
         for task in (self._poll_task, self._tail_task):
             if task and not task.done():
                 task.cancel()
@@ -182,6 +201,33 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.mqtt_bridge.async_stop()
             self.mqtt_bridge = None
 
+    # ─────────────────────────────────────────── auto-clear ticker
+    def _tick_auto_clear(self, live_view_max_s: int) -> None:
+        """Expire transient pulses independently of poll cadence.
+
+        Doorbell pulse → DOORBELL_PULSE_SECONDS (wall-clock).
+        Live-view → live_view_max_s (monotonic loop time).
+        """
+        changed = False
+        now_wall = datetime.now(timezone.utc)
+        if self.doorbell_active and self.last_doorbell_at is not None:
+            age = (now_wall - self.last_doorbell_at).total_seconds()
+            if age > DOORBELL_PULSE_SECONDS:
+                self.doorbell_active = False
+                changed = True
+        now_loop = self.hass.loop.time()
+        if (
+            self.live_view_active
+            and self.live_view_started_at is not None
+            and now_loop - self.live_view_started_at > live_view_max_s
+        ):
+            _LOGGER.debug("live_view auto-clear after %.0fs", live_view_max_s)
+            self.live_view_active = False
+            self.live_view_started_at = None
+            changed = True
+        if changed:
+            self.async_set_updated_data(self.data or {})
+
     # ─────────────────────────────────────────── polling loop (robust path)
 
     async def _poll_loop(self, interval: float) -> None:
@@ -193,8 +239,10 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           consecutive failures we switch into capped exponential backoff so we
           don't hammer an unreachable / rebooting GW.
         - `gateway_online` flag mirrors the success/failure state for entities.
-        - Auto-clears `live_view_active` after `live_view_duration + 30s` so it
-          doesn't get stuck ON if we miss the hang-event.
+
+        Auto-clears for stuck `doorbell_active` / `live_view_active` flags
+        live in `_tick_auto_clear()` on a separate 1s timer — that keeps
+        them ticking even when this loop is sleeping in a long exp-backoff.
         """
         prev_state: int | None = None
         prev_call: list[int] | None = None
@@ -205,30 +253,8 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             jitter=BACKOFF_JITTER,
         )
         POLL_BACKOFF_THRESHOLD = 3
-        opts = {**self.entry.data, **self.entry.options}
-        live_view_max_s = opts.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION) + 30
         failures = 0
         while True:
-            now = self.hass.loop.time()
-            # Auto-clear stuck live_view_active flag
-            if (
-                self.live_view_active
-                and self.live_view_started_at is not None
-                and now - self.live_view_started_at > live_view_max_s
-            ):
-                _LOGGER.debug("live_view auto-clear after %.0fs", live_view_max_s)
-                self.live_view_active = False
-                self.live_view_started_at = None
-                self.async_set_updated_data(self.data or {})
-            # Auto-clear stuck doorbell_active pulse
-            if self.doorbell_active and self.last_doorbell_at is not None:
-                # last_doorbell_at is a wall-clock datetime; compare against
-                # wall-clock now (cheap, sub-second precision is fine here)
-                from datetime import datetime as _dt, timezone as _tz  # local alias to avoid shadowing
-                age = (_dt.now(_tz.utc) - self.last_doorbell_at).total_seconds()
-                if age > DOORBELL_PULSE_SECONDS:
-                    self.doorbell_active = False
-                    self.async_set_updated_data(self.data or {})
             try:
                 app = await self.client.application()
                 # success → flip online + reset backoff
@@ -392,6 +418,10 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if remote:
                 self.last_caller = remote
         elif etype == "call_ended":
+            # C2: also clear doorbell_active so telnet-only setups (no poll
+            # loop transitions) don't keep it stuck until the 10s pulse-timer
+            # eventually expires.
+            self.doorbell_active = False
             self.call_active = False
             self.live_view_active = False
             self.live_view_started_at = None

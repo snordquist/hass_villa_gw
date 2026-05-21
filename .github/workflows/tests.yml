@@ -54,7 +54,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
-      - name: Syntax-only smoke test (no tests yet)
+      - name: Syntax smoke test
         run: |
           python - <<'PY'
           import ast, pathlib
@@ -62,3 +62,7 @@ jobs:
               ast.parse(p.read_text())
               print("ok:", p)
           PY
+
+      - name: Pytest (log-line parser)
+        run: |
+          python -m pytest tests/ -v

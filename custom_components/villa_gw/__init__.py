@@ -181,7 +181,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         client = _first_client()
         if client:
             # MJPG snap is an avlink command (mimedia executes it)
-            await client._avlink_query("AT+B MJPG Snap")  # noqa: SLF001
+            await client.send_avlink("AT+B MJPG Snap")
 
     async def svc_send_at(call: ServiceCall) -> dict[str, Any] | None:
         client = _first_client()
@@ -203,10 +203,10 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             return {"error": "command contains CR/LF/NUL/;"}
 
         if target == "avlink":
-            response = await client._avlink_query(cmd)  # noqa: SLF001
+            response = await client.send_avlink(cmd)
             return {"response": response}
         # uart2d (default) — fire-and-forget, but optionally collect short response
-        await client._uart2d_send(cmd)  # noqa: SLF001
+        await client.send_uart2d(cmd)
         return {"response": ""} if expect else None
 
     hass.services.async_register(DOMAIN, SERVICE_WAKE, svc_wake, schema=SCHEMA_WAKE)

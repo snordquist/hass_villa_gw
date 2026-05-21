@@ -47,8 +47,18 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 LOG_FILE = "/customer/share/usr-log.log"
+# Per-connection timeouts. AVLINK_TIMEOUT > smallest allowed poll interval
+# (250 ms) on purpose — slow gateways genuinely take up to ~3 s to answer
+# AT+B APPLICATION on a busy bus. Result: when the device is slow, the
+# effective poll cadence is dominated by this timeout, not by the user's
+# poll_interval_ms setting. That is intentional — a 250 ms cadence against
+# a 2 s device just queues coroutines, it doesn't speed anything up.
 AVLINK_TIMEOUT = 3
 UART2D_TIMEOUT = 5
+# Cap on a single log line before we drop the in-progress buffer. The Villa
+# GW emits well-bounded log lines; anything over 64 KiB is almost certainly
+# binary spew or a stuck connection.
+LOG_LINE_MAX_BYTES = 65536
 
 
 class VillaGwAuthError(Exception):
@@ -74,6 +84,10 @@ class VillaGwClient:
         self._pw = web_password
         self._session = session
         self._token: str | None = None
+        # Serialize login() so a 401-storm doesn't fire N parallel logins
+        # that overwrite each other's tokens. Acquired only around the
+        # actual POST /api/login call, not for every request.
+        self._login_lock = asyncio.Lock()
 
     # ──────────────────────────────────────────────────────── meta
 
@@ -84,18 +98,27 @@ class VillaGwClient:
     # ──────────────────────────────────────────────────────── HTTP REST
 
     async def login(self) -> str:
-        """POST /api/login → JWT. Cached."""
-        url = f"http://{self._host}:{PORT_WEB}/api/login"
-        body = {"name": self._user, "password": self._pw}
-        try:
-            async with self._session.post(url, json=body, timeout=10) as resp:
-                data = await resp.json(content_type=None)
-        except aiohttp.ClientError as err:
-            raise VillaGwConnectionError(f"login: {err}") from err
-        if data.get("status") != 0 or not data.get("token"):
-            raise VillaGwAuthError(f"Login rejected: {data}")
-        self._token = data["token"]
-        return self._token
+        """POST /api/login → JWT. Cached.
+
+        Serialized via _login_lock so concurrent callers don't fire
+        parallel logins. If a second caller waits on the lock and another
+        coroutine already refreshed the token, we just return the cached
+        value without re-hitting the server.
+        """
+        async with self._login_lock:
+            if self._token:
+                return self._token
+            url = f"http://{self._host}:{PORT_WEB}/api/login"
+            body = {"name": self._user, "password": self._pw}
+            try:
+                async with self._session.post(url, json=body, timeout=10) as resp:
+                    data = await resp.json(content_type=None)
+            except aiohttp.ClientError as err:
+                raise VillaGwConnectionError(f"login: {err}") from err
+            if data.get("status") != 0 or not data.get("token"):
+                raise VillaGwAuthError(f"Login rejected: {data}")
+            self._token = data["token"]
+            return self._token
 
     async def _get_json(self, path: str) -> dict:
         if not self._token:
@@ -105,7 +128,14 @@ class VillaGwClient:
         try:
             async with self._session.get(url, headers=headers, timeout=10) as resp:
                 if resp.status == 401:
-                    self._token = None
+                    # Atomic refresh: invalidate the token we just tried
+                    # (not whatever a concurrent coroutine may have written
+                    # since), then re-login under the lock so we don't fire
+                    # parallel login requests on a 401-storm.
+                    stale = self._token
+                    async with self._login_lock:
+                        if self._token == stale:
+                            self._token = None
                     await self.login()
                     headers["Cookie"] = f"token={self._token}"
                     async with self._session.get(url, headers=headers, timeout=10) as r2:
@@ -247,6 +277,19 @@ class VillaGwClient:
     async def switch_camera(self) -> None:
         await self._uart2d_send("AT+B UART switchCamera")
 
+    # ──────────────────────────────────────────────────────── Public AT+B passthrough
+    # Thin public wrappers so callers (services, MQTT bridge) don't need
+    # to reach into private methods. Same I/O semantics — fail-fast with
+    # VillaGwConnectionError on connect/send issues.
+
+    async def send_avlink(self, command: str) -> str:
+        """Public alias for _avlink_query — returns the raw response string."""
+        return await self._avlink_query(command)
+
+    async def send_uart2d(self, command: str) -> None:
+        """Public alias for _uart2d_send — fire-and-forget."""
+        await self._uart2d_send(command)
+
     # ──────────────────────────────────────────────────────── Optional log tail
 
     async def stream_log_events(
@@ -310,12 +353,24 @@ class VillaGwClient:
 
     @staticmethod
     async def _iter_lines(reader: asyncio.StreamReader) -> AsyncIterator[str]:
+        """Yield log lines, dropping anything pathologically oversized.
+
+        Defensive against a device that emits a stream without newlines or
+        starts spewing binary; without this the buffer would grow unbounded.
+        """
         buf = b""
         while True:
             chunk = await reader.read(4096)
             if not chunk:
                 return
             buf += chunk
+            if len(buf) > LOG_LINE_MAX_BYTES:
+                _LOGGER.warning(
+                    "log tail: dropping oversized buffer (%d bytes, no newline)",
+                    len(buf),
+                )
+                buf = b""
+                continue
             while b"\n" in buf:
                 line, _, buf = buf.partition(b"\n")
                 yield line.decode("utf-8", errors="replace").rstrip("\r")
