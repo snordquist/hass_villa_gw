@@ -1,0 +1,88 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Villa GW",
+        "description": "Verbindung zum HHG/EGB Villa GW herstellen. Standard-Zugangsdaten admin/admin.",
+        "data": {
+          "host": "Host oder IP",
+          "web_username": "Web-Benutzername",
+          "web_password": "Web-Passwort",
+          "outdoor_address": "Bus-Adresse der Außenstation",
+          "live_view_duration": "Live-Sicht-Dauer (Sekunden)",
+          "poll_interval_ms": "Polling-Intervall für Events (ms) — 1000 = 1 s",
+          "enable_log_tail": "Telnet-Log-Tail aktivieren (schneller, braucht offenes Telnet)",
+          "enable_mqtt_bridge": "MQTT-Bridge aktivieren (Events nach HA-Mosquitto, MQTT-Discovery)",
+          "mqtt_base_topic": "MQTT-Base-Topic"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Villa GW unter dieser Adresse nicht erreichbar",
+      "invalid_auth": "Anmeldung am Web-Interface abgelehnt — Benutzername/Passwort prüfen",
+      "unknown": "Unerwarteter Fehler — siehe Home-Assistant-Logs"
+    },
+    "abort": {
+      "already_configured": "Dieses Villa GW (gleiche MAC) ist bereits eingerichtet"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Villa-GW-Optionen",
+        "data": {
+          "outdoor_address": "Bus-Adresse der Außenstation",
+          "live_view_duration": "Live-Sicht-Dauer (Sekunden)",
+          "poll_interval_ms": "Polling-Intervall für Events (ms)",
+          "enable_log_tail": "Telnet-Log-Tail-Fast-Path aktivieren",
+          "enable_mqtt_bridge": "MQTT-Bridge aktivieren",
+          "mqtt_base_topic": "MQTT-Base-Topic"
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "wake": {"name": "Live-Sicht"},
+      "stop_live": {"name": "Live-Sicht stoppen"},
+      "hook": {"name": "Annehmen"},
+      "hang": {"name": "Auflegen"},
+      "call_outdoor": {"name": "Türstation anrufen"},
+      "switch_camera": {"name": "Kamera umschalten"}
+    },
+    "binary_sensor": {
+      "doorbell_ringing": {"name": "Klingelt"},
+      "call_active": {"name": "Anruf aktiv"},
+      "live_view_active": {"name": "Live-Sicht aktiv"},
+      "outdoor_station_ringing": {"name": "Türstation klingelt"},
+      "cloud_online": {"name": "Cloud-Verbindung"},
+      "gateway_online": {"name": "Gateway erreichbar"}
+    },
+    "sensor": {
+      "state": {"name": "Zustand"},
+      "sip_status": {"name": "SIP"},
+      "cloud_status": {"name": "Cloud"},
+      "last_doorbell": {"name": "Letzte Klingel"},
+      "last_unlock": {"name": "Letzte Türöffnung"},
+      "last_caller": {"name": "Letzter Anrufer"},
+      "last_app_user": {"name": "Letzter App-User"},
+      "stream_mode": {"name": "Stream-Modus"},
+      "firmware": {"name": "Firmware"},
+      "uptime": {"name": "Uptime"},
+      "memory_used": {"name": "Speicher belegt"},
+      "doorbell_count_today": {"name": "Klingeln heute"},
+      "unlock_count_today": {"name": "Türöffnungen heute"},
+      "call_count_today": {"name": "Anrufe heute"}
+    }
+  },
+  "services": {
+    "wake": {"name": "Live-Sicht wecken"},
+    "stop_live": {"name": "Live-Sicht stoppen"},
+    "unlock_door": {"name": "Tür öffnen"},
+    "hangup": {"name": "Auflegen"},
+    "accept_call": {"name": "Annehmen"},
+    "switch_camera": {"name": "Kamera umschalten"},
+    "snapshot": {"name": "Snapshot"},
+    "send_at_command": {"name": "AT+B-Befehl senden"}
+  }
+}

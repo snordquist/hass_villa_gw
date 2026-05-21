@@ -1,0 +1,88 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Villa GW",
+        "description": "Connect to your HHG/EGB Villa GW. Default web credentials are admin/admin.",
+        "data": {
+          "host": "Host or IP",
+          "web_username": "Web username",
+          "web_password": "Web password",
+          "outdoor_address": "Outdoor station bus address",
+          "live_view_duration": "Live-view duration (seconds)",
+          "poll_interval_ms": "Event poll interval (ms) — 1000 = 1 s",
+          "enable_log_tail": "Enable Telnet log-tail (faster, but requires open telnet)",
+          "enable_mqtt_bridge": "Enable MQTT bridge (publish events to HA Mosquitto, MQTT-Discovery)",
+          "mqtt_base_topic": "MQTT base topic"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the Villa GW at that address",
+      "invalid_auth": "Web admin login rejected — check username/password",
+      "unknown": "Unexpected error — see Home Assistant logs"
+    },
+    "abort": {
+      "already_configured": "This Villa GW (same MAC) is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Villa GW options",
+        "data": {
+          "outdoor_address": "Outdoor station bus address",
+          "live_view_duration": "Live-view duration (seconds)",
+          "poll_interval_ms": "Event poll interval (ms)",
+          "enable_log_tail": "Enable Telnet log-tail fast-path",
+          "enable_mqtt_bridge": "Enable MQTT bridge",
+          "mqtt_base_topic": "MQTT base topic"
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "wake": {"name": "Live view"},
+      "stop_live": {"name": "Stop live view"},
+      "hook": {"name": "Accept"},
+      "hang": {"name": "Hang up"},
+      "call_outdoor": {"name": "Call outdoor station"},
+      "switch_camera": {"name": "Switch camera"}
+    },
+    "binary_sensor": {
+      "doorbell_ringing": {"name": "Doorbell ringing"},
+      "call_active": {"name": "Call active"},
+      "live_view_active": {"name": "Live view active"},
+      "outdoor_station_ringing": {"name": "Outdoor station ringing"},
+      "cloud_online": {"name": "Cloud connection"},
+      "gateway_online": {"name": "Gateway reachable"}
+    },
+    "sensor": {
+      "state": {"name": "State"},
+      "sip_status": {"name": "SIP"},
+      "cloud_status": {"name": "Cloud"},
+      "last_doorbell": {"name": "Last doorbell"},
+      "last_unlock": {"name": "Last unlock"},
+      "last_caller": {"name": "Last caller"},
+      "last_app_user": {"name": "Last app user"},
+      "stream_mode": {"name": "Stream mode"},
+      "firmware": {"name": "Firmware"},
+      "uptime": {"name": "Uptime"},
+      "memory_used": {"name": "Memory used"},
+      "doorbell_count_today": {"name": "Doorbells today"},
+      "unlock_count_today": {"name": "Unlocks today"},
+      "call_count_today": {"name": "Calls today"}
+    }
+  },
+  "services": {
+    "wake": {"name": "Wake live view"},
+    "stop_live": {"name": "Stop live view"},
+    "unlock_door": {"name": "Unlock door"},
+    "hangup": {"name": "Hang up"},
+    "accept_call": {"name": "Accept call"},
+    "switch_camera": {"name": "Switch camera"},
+    "snapshot": {"name": "Snapshot"},
+    "send_at_command": {"name": "Send raw AT+B command"}
+  }
+}

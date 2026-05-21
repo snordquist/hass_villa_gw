@@ -1,0 +1,85 @@
+wake:
+  name: Wake live view
+  description: >
+    Trigger a silent live-view session — the outdoor camera turns on without ringing.
+    Sends 'AT+B UART monitor 1 <address> <duration>' to uart2d.
+  fields:
+    duration:
+      name: Duration
+      description: Seconds the live-view should stay active.
+      required: false
+      example: 30
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 120
+          unit_of_measurement: seconds
+    address:
+      name: Outdoor address
+      description: Bus address of the outdoor station (default from config).
+      required: false
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 255
+
+stop_live:
+  name: Stop live view
+  description: End the current silent live-view session.
+  fields:
+    address:
+      name: Outdoor address
+      required: false
+      selector: { number: { min: 0, max: 255 } }
+
+unlock_door:
+  name: Unlock door
+  description: Send 'AT+B UART unlock 1' to open the door relay via the bus.
+
+hangup:
+  name: Hang up
+  description: End any active call or live-view session.
+
+accept_call:
+  name: Accept call
+  description: Pick up an incoming call.
+
+switch_camera:
+  name: Switch camera
+  description: Cycle through outdoor stations (only useful with multiple).
+
+snapshot:
+  name: Snapshot
+  description: Request a single MJPG snapshot from the camera.
+
+send_at_command:
+  name: Send raw AT+B command (power-user)
+  description: >
+    Send an arbitrary AT+B command directly to one of the GW's internal daemons.
+    Use ONLY if you understand what each command does — wrong commands can ring
+    the outdoor station, hang up active calls, or reload services.
+  fields:
+    command:
+      name: AT+B command
+      description: "Full command string, e.g. 'AT+B UART monitor 1 1 30'"
+      required: true
+      example: "AT+B UART monitor 1 1 30"
+      selector: { text: {} }
+    target:
+      name: Daemon to send to
+      description: "uart2d (port 10087, bus actions) or avlink (port 10086, status / reload)"
+      required: false
+      default: uart2d
+      selector:
+        select:
+          options:
+            - uart2d
+            - avlink
+    expect_response:
+      name: Expect response?
+      description: If true, wait for and return any reply (useful for query commands on avlink).
+      required: false
+      default: false
+      selector: { boolean: {} }
