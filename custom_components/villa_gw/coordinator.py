@@ -114,6 +114,9 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_caller: str | None = None     # remote_addr from on_incoming_call
         self.last_app_user: str | None = None   # from-UUID of last MQTT monitor
         self.last_unlock_at: float | None = None
+        # When live-view was started; used to auto-clear after the configured
+        # duration + grace period if no explicit hang-event ever arrives.
+        self.live_view_started_at: float | None = None
 
         # Daily counters (reset at midnight by sensor.py)
         self.doorbell_count_today = 0
@@ -180,6 +183,8 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
           consecutive failures we switch into capped exponential backoff so we
           don't hammer an unreachable / rebooting GW.
         - `gateway_online` flag mirrors the success/failure state for entities.
+        - Auto-clears `live_view_active` after `live_view_duration + 30s` so it
+          doesn't get stuck ON if we miss the hang-event.
         """
         prev_state: int | None = None
         prev_call: list[int] | None = None
@@ -190,8 +195,20 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             jitter=BACKOFF_JITTER,
         )
         POLL_BACKOFF_THRESHOLD = 3
+        opts = {**self.entry.data, **self.entry.options}
+        live_view_max_s = opts.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION) + 30
         failures = 0
         while True:
+            # Auto-clear stuck live_view_active flag
+            if (
+                self.live_view_active
+                and self.live_view_started_at is not None
+                and self.hass.loop.time() - self.live_view_started_at > live_view_max_s
+            ):
+                _LOGGER.debug("live_view auto-clear after %.0fs", live_view_max_s)
+                self.live_view_active = False
+                self.live_view_started_at = None
+                self.async_set_updated_data(self.data or {})
             try:
                 app = await self.client.application()
                 # success → flip online + reset backoff
@@ -344,11 +361,13 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.outdoor_station_ringing = False
         elif etype == "live_view_started":
             self.live_view_active = True
+            self.live_view_started_at = now
             from_uuid = event.get("from")
             if from_uuid:
                 self.last_app_user = from_uuid
         elif etype == "live_view_ended":
             self.live_view_active = False
+            self.live_view_started_at = None
         elif etype == "ringback":
             self.outdoor_station_ringing = event.get("state", 0) == 1
         elif etype == "door_unlocked":
@@ -390,28 +409,45 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ─────────────────────────────────────────── slow sensor refresh
 
     async def _async_update_data(self) -> dict[str, Any]:
+        """Slow refresh — system + video state. Robust against partial failures.
+
+        AT+B SYSTEM and the REST /api/video are independent calls; if one fails
+        we still publish the other. Prior versions raised UpdateFailed on the
+        first error, leaving the system sensors permanently 'unknown' if
+        avlink:10086 was briefly unreachable during startup.
+        """
+        sys: dict | None = None
+        video: dict | None = None
         try:
             sys = await self.client.system_status()
-            video = await self.client.video_config()
             self.sys_state = sys
-            data = {
-                "system": sys,
-                "video": video,
-                "application": self.app_state,
-                "live_view_active": self.live_view_active,
-                "doorbell_active": self.doorbell_active,
-                "call_active": self.call_active,
-                "outdoor_station_ringing": self.outdoor_station_ringing,
-                "cloud_online": self.cloud_online,
-            }
-            if self.mqtt_bridge:
-                try:
-                    await self.mqtt_bridge.publish_system(sys)
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.debug("MQTT system mirror failed: %s", err)
-            return data
         except VillaGwConnectionError as err:
-            raise UpdateFailed(f"Refresh failed: {err}") from err
+            _LOGGER.debug("system_status fetch failed: %s", err)
+        try:
+            video = await self.client.video_config()
+        except VillaGwConnectionError as err:
+            _LOGGER.debug("video_config fetch failed: %s", err)
+
+        # If we have NO data at all (both failed) AND we never got anything
+        # before, the entities will stay "unknown" — that's the expected
+        # behaviour, but we still need to keep the coordinator alive so the
+        # poll-loop transitions still fire entity updates.
+        data = {
+            "system": sys or self.sys_state or {},
+            "video": video or (self.data or {}).get("video") or {},
+            "application": self.app_state,
+            "live_view_active": self.live_view_active,
+            "doorbell_active": self.doorbell_active,
+            "call_active": self.call_active,
+            "outdoor_station_ringing": self.outdoor_station_ringing,
+            "cloud_online": self.cloud_online,
+        }
+        if self.mqtt_bridge and sys:
+            try:
+                await self.mqtt_bridge.publish_system(sys)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("MQTT system mirror failed: %s", err)
+        return data
 
 
 def get_coordinator(hass: HomeAssistant, entry: ConfigEntry) -> VillaGwCoordinator:

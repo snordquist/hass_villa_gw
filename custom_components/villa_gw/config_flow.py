@@ -105,10 +105,14 @@ class VillaGwConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class VillaGwOptionsFlow(OptionsFlow):
-    """Allow changing duration / address without re-entering credentials."""
+    """Allow changing duration / address without re-entering credentials.
+
+    Note: HA 2024.x made ``OptionsFlow.config_entry`` a read-only property.
+    Storing it as ``self._entry`` avoids the AttributeError on init.
+    """
 
     def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
+        self._entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -116,7 +120,7 @@ class VillaGwOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current = {**self.config_entry.data, **self.config_entry.options}
+        current = {**self._entry.data, **self._entry.options}
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
