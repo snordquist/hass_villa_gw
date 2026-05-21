@@ -76,13 +76,49 @@
     }
   },
   "services": {
-    "wake": {"name": "Live-Sicht wecken"},
-    "stop_live": {"name": "Live-Sicht stoppen"},
-    "unlock_door": {"name": "Tür öffnen"},
-    "hangup": {"name": "Auflegen"},
-    "accept_call": {"name": "Annehmen"},
-    "switch_camera": {"name": "Kamera umschalten"},
-    "snapshot": {"name": "Snapshot"},
-    "send_at_command": {"name": "AT+B-Befehl senden"}
+    "wake": {
+      "name": "Live-Sicht wecken",
+      "description": "Startet eine stumme Live-Sicht — die Außenstation-Kamera geht an, ohne zu klingeln.",
+      "fields": {
+        "duration": {"name": "Dauer", "description": "Sekunden, wie lange die Live-Sicht aktiv bleibt."},
+        "address": {"name": "Außenstation-Adresse", "description": "Bus-Adresse der Außenstation."}
+      }
+    },
+    "stop_live": {
+      "name": "Live-Sicht stoppen",
+      "description": "Beendet die laufende stumme Live-Sicht-Session.",
+      "fields": {
+        "address": {"name": "Außenstation-Adresse", "description": "Bus-Adresse der Außenstation."}
+      }
+    },
+    "unlock_door": {
+      "name": "Tür öffnen",
+      "description": "Aktiviert das Tür-Relais über den Bus."
+    },
+    "hangup": {
+      "name": "Auflegen",
+      "description": "Beendet einen aktiven Anruf oder eine Live-Sicht-Session."
+    },
+    "accept_call": {
+      "name": "Annehmen",
+      "description": "Nimmt einen eingehenden Anruf an."
+    },
+    "switch_camera": {
+      "name": "Kamera umschalten",
+      "description": "Wechselt zwischen mehreren Außenstationen."
+    },
+    "snapshot": {
+      "name": "Snapshot",
+      "description": "Erstellt einen einzelnen MJPG-Snapshot der Kamera."
+    },
+    "send_at_command": {
+      "name": "AT+B-Befehl senden",
+      "description": "Für Power-User: schickt einen beliebigen AT+B-Befehl direkt an einen der internen Daemons.",
+      "fields": {
+        "command": {"name": "AT+B-Befehl", "description": "Vollständiger Befehl, muss mit 'AT+B' beginnen."},
+        "target": {"name": "Daemon", "description": "uart2d (Bus-Aktionen) oder avlink (Status/Reload)."},
+        "expect_response": {"name": "Antwort erwarten", "description": "Auf Antwort warten und zurückgeben."}
+      }
+    }
   }
 }
