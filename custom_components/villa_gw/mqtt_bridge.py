@@ -7,7 +7,7 @@ without writing a Home Assistant custom component.
 
 Topic layout (defaults to base="villa_gw", did=lowercased MAC):
 
-    villa_gw/<did>/availability         online | offline       (LWT, retained)
+    villa_gw/<did>/availability         online | offline       (retained)
     villa_gw/<did>/state                {state,sip,call}        (retained, JSON)
     villa_gw/<did>/system               {uptime, mem, fw, …}    (retained, JSON)
     villa_gw/<did>/event/<slug>         <json payload>          (NOT retained)
@@ -15,6 +15,12 @@ Topic layout (defaults to base="villa_gw", did=lowercased MAC):
     villa_gw/<did>/cloud/out            …
     villa_gw/<did>/cloud/connect        ok|fail|err             (retained)
     villa_gw/<did>/cmd/<command>        <- HA → bridge → uart2d
+
+Note: the `availability` topic is published "online" on start and "offline"
+on graceful unload. It is NOT a true MQTT Last-Will-Testament — if HA
+crashes or the host dies, the broker will keep the retained "online" value.
+We could only set a true LWT by hooking into HA-Mosquitto's CONNECT packet,
+which is not exposed in the integration API.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    MQTT_CLOUD_ONLY_TYPES,
     MQTT_COMMANDS,
     MQTT_EVENT_SLUGS,
     topic_availability,
@@ -143,15 +150,11 @@ class VillaGwMqttBridge:
                 "state_topic": cloud_connect,
                 "payload_on": "ok", "payload_off": "fail",
             }),
-            ("binary_sensor", "gateway_online", {
-                "name": "Gateway reachable",
-                "device_class": "connectivity",
-                "icon": "mdi:lan-connect",
-                # Mirrors the `availability` topic directly — when the bridge
-                # publishes "offline" via LWT, this entity flips.
-                "state_topic": avail,
-                "payload_on": "online", "payload_off": "offline",
-            }),
+            # NOTE: no separate `gateway_online` discovery entity. HA's MQTT
+            # availability mechanism already marks every entity as
+            # 'unavailable' when our `availability` topic publishes 'offline'
+            # — adding a binary_sensor that reads the same topic would just
+            # show 'unavailable' and never the actual on/off transitions.
             # Status sensors (from state topic)
             ("sensor", "state_id", {
                 "name": "State",
@@ -177,6 +180,7 @@ class VillaGwMqttBridge:
                 "name": "Uptime",
                 "icon": "mdi:timer-sand",
                 "device_class": "duration",
+                "state_class": "measurement",
                 "unit_of_measurement": "s",
                 "entity_category": "diagnostic",
                 "state_topic": system,
@@ -185,6 +189,7 @@ class VillaGwMqttBridge:
             ("sensor", "memory_used", {
                 "name": "Memory used",
                 "icon": "mdi:memory",
+                "state_class": "measurement",
                 "unit_of_measurement": "%",
                 "entity_category": "diagnostic",
                 "state_topic": system,
@@ -233,14 +238,16 @@ class VillaGwMqttBridge:
                 "payload_press": "{}",
             }),
             # Lock (momentary unlock)
+            # Momentary unlock — optimistic, no state_topic.
+            # HA's MQTT lock with `optimistic: true` ignores any state_topic
+            # and toggles client-side, so setting one would just clutter the
+            # discovery config without effect.
             ("lock", "door", {
                 "name": "Door",
                 "icon": "mdi:door",
                 "command_topic": cmd("door"),
                 "payload_lock": "lock",
                 "payload_unlock": "unlock",
-                "state_topic": evt("door_unlocked"),
-                "value_template": "UNLOCKED",
                 "state_locked": "LOCKED",
                 "state_unlocked": "UNLOCKED",
                 "optimistic": True,
@@ -279,14 +286,26 @@ class VillaGwMqttBridge:
     # ─────────────────────────────────────────────── lifecycle
 
     async def async_start(self) -> None:
-        """Subscribe to cmd topics + announce availability."""
+        """Subscribe to cmd topics + announce availability.
+
+        Times out cleanly if the HA MQTT integration isn't ready within 10s —
+        we don't want to block ConfigEntry setup forever when Mosquitto is
+        down or not installed.
+        """
         if self._started:
             return
         try:
-            await mqtt.async_wait_for_mqtt_client(self.hass)
+            await asyncio.wait_for(
+                mqtt.async_wait_for_mqtt_client(self.hass), timeout=10
+            )
+        except asyncio.TimeoutError:
+            _LOGGER.warning(
+                "MQTT-bridge: HA MQTT integration not ready within 10s — bridge disabled"
+            )
+            return
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning(
-                "MQTT-bridge: HA MQTT integration not ready (%s) — bridge disabled", err
+                "MQTT-bridge: HA MQTT integration error (%s) — bridge disabled", err
             )
             return
 
@@ -350,16 +369,22 @@ class VillaGwMqttBridge:
             _LOGGER.warning("MQTT publish %s failed: %s", topic, err)
 
     async def publish_event(self, event: dict) -> None:
-        """One parsed log-event → one MQTT publish on `event/<slug>`."""
+        """One parsed log-event → one MQTT publish on `event/<slug>`.
+
+        Cloud-* events skip the event/* tree (they're already mirrored under
+        cloud/in, cloud/out, cloud/connect below) — keeps the topic tree tidy
+        and avoids double-publishing the same payload twice.
+        """
         etype = event.get("type", "")
-        slug = MQTT_EVENT_SLUGS.get(etype)
-        if not slug:
-            # Unmapped event → publish to event/unknown with full payload
-            slug = "unknown"
-            event = {**event, "_original_type": etype}
-        await self._publish(
-            topic_event(self.base, self.did, slug), event, retain=False, qos=0
-        )
+        if etype not in MQTT_CLOUD_ONLY_TYPES:
+            slug = MQTT_EVENT_SLUGS.get(etype)
+            if not slug:
+                # Unmapped event → publish to event/unknown with full payload
+                slug = "unknown"
+                event = {**event, "_original_type": etype}
+            await self._publish(
+                topic_event(self.base, self.did, slug), event, retain=False, qos=0
+            )
 
         # Cloud-MQTT-mirror events go to a separate subtree
         if etype == "cloud_mqtt_in":
@@ -415,13 +440,24 @@ class VillaGwMqttBridge:
         except (ValueError, TypeError):
             payload = {"raw": msg.payload}
 
+        def _int(key: str, default: int) -> int:
+            """Coerce payload field to int, falling back on garbage input."""
+            try:
+                return int(payload.get(key, default))
+            except (TypeError, ValueError):
+                _LOGGER.warning(
+                    "MQTT cmd %s: invalid %s=%r → using default %d",
+                    cmd, key, payload.get(key), default,
+                )
+                return default
+
         try:
             if cmd == "wake":
-                dur = int(payload.get("duration", self.duration))
-                addr = int(payload.get("address", self.outdoor))
+                dur = _int("duration", self.duration)
+                addr = _int("address", self.outdoor)
                 await self.client.wake_live_view(address=addr, duration=dur)
             elif cmd == "stop_live":
-                addr = int(payload.get("address", self.outdoor))
+                addr = _int("address", self.outdoor)
                 await self.client.stop_live_view(address=addr)
             elif cmd in ("door", "unlock"):
                 await self.client.unlock_door()

@@ -162,7 +162,8 @@ LOG_PATTERN_MAKE_CALL        = r"make_(sip|local|calls)_call|make_calls "
 # Conventions:
 #   - retained: long-lived state (availability, current state, system)
 #   - non-retained: transient events (doorbell ringing, etc.)
-#   - LWT on availability so the broker sets us "offline" if Bridge crashes
+#   - availability: published online/offline on start/stop. NOT a true LWT —
+#     if HA crashes the topic stays "online" until a fresh start cleans it up.
 
 def topic_availability(base: str, did: str) -> str:
     return f"{base}/{did}/availability"
@@ -183,7 +184,9 @@ def topic_cloud(base: str, did: str, direction: str) -> str:
 def topic_cmd(base: str, did: str, cmd: str) -> str:
     return f"{base}/{did}/cmd/{cmd}"
 
-# Mapping log-event-types → MQTT event slugs (used by mqtt_bridge)
+# Mapping log-event-types → MQTT event slugs (used by mqtt_bridge).
+# `cloud_*` events get their own subtree (cloud/in, cloud/out, cloud/connect)
+# rather than being mirrored under event/* — keeps the topic tree tidy.
 MQTT_EVENT_SLUGS = {
     "doorbell_ringing":  "doorbell",
     "call_incoming":     "call_incoming",
@@ -196,6 +199,8 @@ MQTT_EVENT_SLUGS = {
     "door_unlocked":     "door_unlocked",
     "monitor_response":  "monitor_response",
 }
+# Log-event types that bypass the event/* topic and only go to cloud/*
+MQTT_CLOUD_ONLY_TYPES = ("cloud_mqtt_in", "cloud_mqtt_out", "cloud_connect")
 
 # Commands accepted on cmd/* topics → uart2d AT+B-strings
 MQTT_COMMANDS = (

@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -42,7 +43,6 @@ BUTTONS: tuple[VillaGwButtonDescription, ...] = (
     VillaGwButtonDescription(
         key="wake",
         translation_key="wake",
-        name="Live-Sicht",
         icon="mdi:cctv",
         action=lambda c, o: c.wake_live_view(
             address=o.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS),
@@ -52,7 +52,6 @@ BUTTONS: tuple[VillaGwButtonDescription, ...] = (
     VillaGwButtonDescription(
         key="stop_live",
         translation_key="stop_live",
-        name="Live-Sicht stoppen",
         icon="mdi:cctv-off",
         action=lambda c, o: c.stop_live_view(
             address=o.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS),
@@ -61,22 +60,20 @@ BUTTONS: tuple[VillaGwButtonDescription, ...] = (
     VillaGwButtonDescription(
         key="hook",
         translation_key="hook",
-        name="Annehmen",
         icon="mdi:phone",
         action=lambda c, _o: c.hook_call(),
     ),
     VillaGwButtonDescription(
         key="hang",
         translation_key="hang",
-        name="Auflegen",
         icon="mdi:phone-hangup",
         action=lambda c, _o: c.hang_call(),
     ),
     VillaGwButtonDescription(
         key="call_outdoor",
         translation_key="call_outdoor",
-        name="Türstation anrufen",
         icon="mdi:phone-outgoing",
+        entity_category=EntityCategory.CONFIG,
         entity_registry_enabled_default=False,  # caution: rings the outdoor station!
         action=lambda c, o: c.call_outdoor(
             address=o.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS),
@@ -85,8 +82,8 @@ BUTTONS: tuple[VillaGwButtonDescription, ...] = (
     VillaGwButtonDescription(
         key="switch_camera",
         translation_key="switch_camera",
-        name="Kamera umschalten",
         icon="mdi:camera-switch",
+        entity_category=EntityCategory.CONFIG,
         entity_registry_enabled_default=False,  # only useful with multiple outdoor stations
         action=lambda c, _o: c.switch_camera(),
     ),

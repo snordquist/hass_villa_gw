@@ -34,7 +34,7 @@ class VillaGwDoorLock(LockEntity):
     """Momentary unlock via bus."""
 
     _attr_has_entity_name = True
-    _attr_name = "Türöffner"
+    _attr_translation_key = "door"
     _attr_icon = "mdi:door"
 
     def __init__(self, coordinator: VillaGwCoordinator, entry: ConfigEntry) -> None:
@@ -44,12 +44,23 @@ class VillaGwDoorLock(LockEntity):
             identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
         )
         self._attr_is_locked = True
+        self._relock_task: asyncio.Task | None = None
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the pending re-lock task when the entity is removed."""
+        if self._relock_task and not self._relock_task.done():
+            self._relock_task.cancel()
+        self._relock_task = None
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Trigger the door relay."""
         await self.coordinator.client.unlock_door()
         self._attr_is_locked = False
         self.async_write_ha_state()
+
+        # Cancel any previous re-lock pending so they don't stack
+        if self._relock_task and not self._relock_task.done():
+            self._relock_task.cancel()
 
         # Re-lock after the relay's configured hold time
         # (parameter.elock_holdtime, default 3s — we read from /api/parameter
@@ -63,11 +74,14 @@ class VillaGwDoorLock(LockEntity):
             pass
 
         async def _relock() -> None:
-            await asyncio.sleep(hold)
+            try:
+                await asyncio.sleep(hold)
+            except asyncio.CancelledError:
+                return
             self._attr_is_locked = True
             self.async_write_ha_state()
 
-        self.hass.async_create_task(_relock())
+        self._relock_task = self.hass.async_create_task(_relock())
 
     async def async_lock(self, **kwargs: Any) -> None:
         """No-op (relay is auto-closing)."""

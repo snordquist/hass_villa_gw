@@ -24,6 +24,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -78,18 +79,11 @@ def _stream_mode(c: VillaGwCoordinator) -> str:
 
 
 def _last_doorbell(c: VillaGwCoordinator) -> datetime | None:
-    if c.last_doorbell_at is None:
-        return None
-    # coordinator stores monotonic loop time; convert to UTC wall clock approximately
-    delta_to_now = c.hass.loop.time() - c.last_doorbell_at
-    return datetime.now(timezone.utc) - timedelta(seconds=delta_to_now)
+    return c.last_doorbell_at
 
 
 def _last_unlock(c: VillaGwCoordinator) -> datetime | None:
-    if c.last_unlock_at is None:
-        return None
-    delta_to_now = c.hass.loop.time() - c.last_unlock_at
-    return datetime.now(timezone.utc) - timedelta(seconds=delta_to_now)
+    return c.last_unlock_at
 
 
 # ─────────────────────────────────────────────────────────── descriptors
@@ -99,28 +93,24 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="state",
         translation_key="state",
-        name="State",
         icon="mdi:state-machine",
         value=_state_int,
     ),
     VillaGwSensorDescription(
         key="sip_status",
         translation_key="sip_status",
-        name="SIP-Status",
         icon="mdi:phone-check",
         value=_sip_status,
     ),
     VillaGwSensorDescription(
         key="cloud_status",
         translation_key="cloud_status",
-        name="Cloud-Status",
         icon="mdi:cloud-check",
         value=_cloud_status,
     ),
     VillaGwSensorDescription(
         key="last_doorbell",
         translation_key="last_doorbell",
-        name="Letzte Klingel",
         icon="mdi:doorbell",
         device_class=SensorDeviceClass.TIMESTAMP,
         value=_last_doorbell,
@@ -128,7 +118,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="last_unlock",
         translation_key="last_unlock",
-        name="Letzte Türöffnung",
         icon="mdi:door-open",
         device_class=SensorDeviceClass.TIMESTAMP,
         value=_last_unlock,
@@ -136,7 +125,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="last_caller",
         translation_key="last_caller",
-        name="Letzter Anrufer",
         icon="mdi:phone-incoming",
         value=lambda c: c.last_caller,
         entity_registry_enabled_default=False,
@@ -144,7 +132,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="last_app_user",
         translation_key="last_app_user",
-        name="Letzter App-User",
         icon="mdi:account",
         value=lambda c: c.last_app_user,
         entity_registry_enabled_default=False,
@@ -152,7 +139,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="stream_mode",
         translation_key="stream_mode",
-        name="Stream-Modus",
         icon="mdi:video-input-component",
         value=_stream_mode,
     ),
@@ -160,7 +146,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="firmware",
         translation_key="firmware",
-        name="Firmware",
         icon="mdi:chip",
         entity_registry_enabled_default=False,
         value=_firmware,
@@ -168,7 +153,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="uptime",
         translation_key="uptime",
-        name="Uptime",
         icon="mdi:timer-sand",
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_registry_enabled_default=False,
@@ -177,7 +161,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="memory_used",
         translation_key="memory_used",
-        name="Speicher belegt",
         icon="mdi:memory",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -188,7 +171,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="doorbell_count_today",
         translation_key="doorbell_count_today",
-        name="Klingeln heute",
         icon="mdi:counter",
         state_class=SensorStateClass.TOTAL_INCREASING,
         value=lambda c: c.doorbell_count_today,
@@ -196,7 +178,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="unlock_count_today",
         translation_key="unlock_count_today",
-        name="Türöffnungen heute",
         icon="mdi:counter",
         state_class=SensorStateClass.TOTAL_INCREASING,
         value=lambda c: c.unlock_count_today,
@@ -204,7 +185,6 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
     VillaGwSensorDescription(
         key="call_count_today",
         translation_key="call_count_today",
-        name="Anrufe heute",
         icon="mdi:counter",
         state_class=SensorStateClass.TOTAL_INCREASING,
         value=lambda c: c.call_count_today,
@@ -233,7 +213,15 @@ async def async_setup_entry(
     )
 
 
-class VillaGwSensor(CoordinatorEntity[VillaGwCoordinator], SensorEntity):
+class VillaGwSensor(CoordinatorEntity[VillaGwCoordinator], SensorEntity, RestoreEntity):
+    """Coordinator-backed sensor with state-restore across HA restarts.
+
+    Only sensors whose value lives in the coordinator (counters, last_*)
+    benefit — system/state sensors come back from the next poll. The restore
+    runs once, in `async_added_to_hass`, and seeds the coordinator's mirror
+    fields so the very first state read matches what it was before reload.
+    """
+
     _attr_has_entity_name = True
     entity_description: VillaGwSensorDescription
 
@@ -253,3 +241,29 @@ class VillaGwSensor(CoordinatorEntity[VillaGwCoordinator], SensorEntity):
     @property
     def native_value(self) -> Any:
         return self.entity_description.value(self.coordinator)
+
+    async def async_added_to_hass(self) -> None:
+        """Restore coordinator state on cold start so sensors keep their values."""
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if not last or last.state in (None, "unknown", "unavailable"):
+            return
+        key = self.entity_description.key
+        coord = self.coordinator
+        try:
+            if key == "doorbell_count_today" and not coord.doorbell_count_today:
+                coord.doorbell_count_today = int(last.state)
+            elif key == "unlock_count_today" and not coord.unlock_count_today:
+                coord.unlock_count_today = int(last.state)
+            elif key == "call_count_today" and not coord.call_count_today:
+                coord.call_count_today = int(last.state)
+            elif key == "last_caller" and not coord.last_caller:
+                coord.last_caller = last.state
+            elif key == "last_app_user" and not coord.last_app_user:
+                coord.last_app_user = last.state
+            elif key == "last_doorbell" and not coord.last_doorbell_at:
+                coord.last_doorbell_at = datetime.fromisoformat(last.state)
+            elif key == "last_unlock" and not coord.last_unlock_at:
+                coord.last_unlock_at = datetime.fromisoformat(last.state)
+        except (ValueError, TypeError):
+            pass  # malformed restored state — ignore, next poll will fill

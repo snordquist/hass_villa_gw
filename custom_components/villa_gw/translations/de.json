@@ -37,19 +37,27 @@
           "poll_interval_ms": "Polling-Intervall für Events (ms)",
           "enable_log_tail": "Telnet-Log-Tail-Fast-Path aktivieren",
           "enable_mqtt_bridge": "MQTT-Bridge aktivieren",
+          "enable_mqtt_discovery": "MQTT-Discovery-Configs publishen",
           "mqtt_base_topic": "MQTT-Base-Topic"
         }
       }
     }
   },
   "entity": {
+    "camera": {
+      "live": {"name": "Live"}
+    },
+    "lock": {
+      "door": {"name": "Türöffner"}
+    },
     "button": {
       "wake": {"name": "Live-Sicht"},
       "stop_live": {"name": "Live-Sicht stoppen"},
       "hook": {"name": "Annehmen"},
       "hang": {"name": "Auflegen"},
       "call_outdoor": {"name": "Türstation anrufen"},
-      "switch_camera": {"name": "Kamera umschalten"}
+      "switch_camera": {"name": "Kamera umschalten"},
+      "snapshot": {"name": "Snapshot"}
     },
     "binary_sensor": {
       "doorbell_ringing": {"name": "Klingelt"},

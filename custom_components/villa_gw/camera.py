@@ -36,7 +36,7 @@ class VillaGwCamera(Camera):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Live"
+    _attr_translation_key = "live"
     _attr_supported_features = CameraEntityFeature.STREAM
     _attr_brand = "HHG / EGB"
     _attr_model = "Villa GW (AVL20P)"

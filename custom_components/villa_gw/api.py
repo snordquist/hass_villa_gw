@@ -148,6 +148,8 @@ class VillaGwClient:
 
         Used for `AT+B APPLICATION`, `AT+B SYSTEM`, `AT+B CONTACTS`, `AT+B CHECKSIP …`.
         These are accepted from any source (only `AT+B UART …` is source-filtered).
+        Any I/O error is wrapped in VillaGwConnectionError so callers can handle
+        connection issues uniformly.
         """
         try:
             reader, writer = await asyncio.wait_for(
@@ -157,9 +159,12 @@ class VillaGwClient:
         except (OSError, asyncio.TimeoutError) as err:
             raise VillaGwConnectionError(f"avlink connect: {err}") from err
         try:
-            writer.write(command.encode() + b"\r\n")
-            await writer.drain()
-            data = await asyncio.wait_for(reader.read(4096), timeout=AVLINK_TIMEOUT)
+            try:
+                writer.write(command.encode() + b"\r\n")
+                await writer.drain()
+                data = await asyncio.wait_for(reader.read(4096), timeout=AVLINK_TIMEOUT)
+            except (OSError, asyncio.TimeoutError) as err:
+                raise VillaGwConnectionError(f"avlink io: {err}") from err
         finally:
             writer.close()
             try:
@@ -203,12 +208,15 @@ class VillaGwClient:
         except (OSError, asyncio.TimeoutError) as err:
             raise VillaGwConnectionError(f"uart2d connect: {err}") from err
         try:
-            writer.write(command.encode() + b"\r\n")
-            await writer.drain()
+            try:
+                writer.write(command.encode() + b"\r\n")
+                await writer.drain()
+            except OSError as err:
+                raise VillaGwConnectionError(f"uart2d io: {err}") from err
             try:
                 await asyncio.wait_for(reader.read(256), timeout=1)
-            except asyncio.TimeoutError:
-                pass
+            except (asyncio.TimeoutError, OSError):
+                pass  # don't fail on optional response read
         finally:
             writer.close()
             try:

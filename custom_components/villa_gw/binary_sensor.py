@@ -7,9 +7,8 @@ every poll-loop iteration (default 1s).
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Callable
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -22,7 +21,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, DOORBELL_PULSE_SECONDS
+from .const import DOMAIN
 from .coordinator import VillaGwCoordinator, get_coordinator
 
 
@@ -37,7 +36,6 @@ BINARY_SENSORS: tuple[VillaGwBinarySensorDescription, ...] = (
     VillaGwBinarySensorDescription(
         key="doorbell_ringing",
         translation_key="doorbell_ringing",
-        name="Klingelt",
         device_class=BinarySensorDeviceClass.OCCUPANCY,
         icon="mdi:doorbell",
         is_on=lambda c: c.doorbell_active,
@@ -45,7 +43,6 @@ BINARY_SENSORS: tuple[VillaGwBinarySensorDescription, ...] = (
     VillaGwBinarySensorDescription(
         key="call_active",
         translation_key="call_active",
-        name="Anruf aktiv",
         device_class=BinarySensorDeviceClass.RUNNING,
         icon="mdi:phone-in-talk",
         is_on=lambda c: c.call_active,
@@ -53,7 +50,6 @@ BINARY_SENSORS: tuple[VillaGwBinarySensorDescription, ...] = (
     VillaGwBinarySensorDescription(
         key="live_view_active",
         translation_key="live_view_active",
-        name="Live-Sicht aktiv",
         device_class=BinarySensorDeviceClass.RUNNING,
         icon="mdi:video",
         is_on=lambda c: c.live_view_active,
@@ -61,7 +57,6 @@ BINARY_SENSORS: tuple[VillaGwBinarySensorDescription, ...] = (
     VillaGwBinarySensorDescription(
         key="outdoor_station_ringing",
         translation_key="outdoor_station_ringing",
-        name="Türstation klingelt",
         device_class=BinarySensorDeviceClass.SOUND,
         icon="mdi:bell-ring",
         is_on=lambda c: c.outdoor_station_ringing,
@@ -69,9 +64,7 @@ BINARY_SENSORS: tuple[VillaGwBinarySensorDescription, ...] = (
     VillaGwBinarySensorDescription(
         key="cloud_online",
         translation_key="cloud_online",
-        name="Cloud-Verbindung",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        entity_category=None,
         icon="mdi:cloud-check",
         is_on=lambda c: c.cloud_online,
     ),
@@ -80,7 +73,6 @@ BINARY_SENSORS: tuple[VillaGwBinarySensorDescription, ...] = (
     VillaGwBinarySensorDescription(
         key="gateway_online",
         translation_key="gateway_online",
-        name="Gateway erreichbar",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         icon="mdi:lan-connect",
         is_on=lambda c: c.gateway_online,
@@ -93,27 +85,15 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up binary sensor platform.
+
+    The doorbell-pulse auto-clear is handled by the coordinator's poll loop
+    (see `_poll_loop`) — keeping it there means it gets cancelled cleanly with
+    the rest of the coordinator's background tasks on integration unload.
+    """
     coordinator = get_coordinator(hass, entry)
     entities = [VillaGwBinarySensor(coordinator, entry, d) for d in BINARY_SENSORS]
     async_add_entities(entities)
-
-    # Doorbell needs an auto-clear timer (the coordinator only sets it ON;
-    # we clear after DOORBELL_PULSE_SECONDS so automations see a pulse).
-    async def _auto_clear_doorbell() -> None:
-        while True:
-            await asyncio.sleep(1)
-            now = hass.loop.time()
-            if (
-                coordinator.doorbell_active
-                and coordinator.last_doorbell_at
-                and now - coordinator.last_doorbell_at > DOORBELL_PULSE_SECONDS
-            ):
-                coordinator.doorbell_active = False
-                coordinator.async_set_updated_data(coordinator.data or {})
-
-    entry.async_create_background_task(
-        hass, _auto_clear_doorbell(), name="villa_gw_doorbell_pulse"
-    )
 
 
 class VillaGwBinarySensor(CoordinatorEntity[VillaGwCoordinator], BinarySensorEntity):

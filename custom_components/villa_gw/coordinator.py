@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -35,6 +36,7 @@ from .const import (
     BACKOFF_JITTER,
     BACKOFF_MAX_S,
     CONF_ENABLE_LOG_TAIL,
+    DOORBELL_PULSE_SECONDS,
     CONF_ENABLE_MQTT_BRIDGE,
     CONF_ENABLE_MQTT_DISCOVERY,
     CONF_LIVE_VIEW_DURATION,
@@ -111,13 +113,16 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.outdoor_station_ringing = False
         self.cloud_online = False  # from last `mqtt connect ok` event
 
-        # Last-seen scalars (drive sensor.last_*)
-        self.last_doorbell_at: float | None = None
+        # Last-seen scalars (drive sensor.last_*).
+        # Stored as wall-clock datetimes — sensors return them directly, so the
+        # value is stable across coordinator updates (avoids recorder churn).
+        self.last_doorbell_at: datetime | None = None
         self.last_caller: str | None = None     # remote_addr from on_incoming_call
         self.last_app_user: str | None = None   # from-UUID of last MQTT monitor
-        self.last_unlock_at: float | None = None
+        self.last_unlock_at: datetime | None = None
         # When live-view was started; used to auto-clear after the configured
         # duration + grace period if no explicit hang-event ever arrives.
+        # Loop-time (monotonic) since this is used for timeout math, not display.
         self.live_view_started_at: float | None = None
 
         # Daily counters (reset at midnight by sensor.py)
@@ -204,16 +209,26 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         live_view_max_s = opts.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION) + 30
         failures = 0
         while True:
+            now = self.hass.loop.time()
             # Auto-clear stuck live_view_active flag
             if (
                 self.live_view_active
                 and self.live_view_started_at is not None
-                and self.hass.loop.time() - self.live_view_started_at > live_view_max_s
+                and now - self.live_view_started_at > live_view_max_s
             ):
                 _LOGGER.debug("live_view auto-clear after %.0fs", live_view_max_s)
                 self.live_view_active = False
                 self.live_view_started_at = None
                 self.async_set_updated_data(self.data or {})
+            # Auto-clear stuck doorbell_active pulse
+            if self.doorbell_active and self.last_doorbell_at is not None:
+                # last_doorbell_at is a wall-clock datetime; compare against
+                # wall-clock now (cheap, sub-second precision is fine here)
+                from datetime import datetime as _dt, timezone as _tz  # local alias to avoid shadowing
+                age = (_dt.now(_tz.utc) - self.last_doorbell_at).total_seconds()
+                if age > DOORBELL_PULSE_SECONDS:
+                    self.doorbell_active = False
+                    self.async_set_updated_data(self.data or {})
             try:
                 app = await self.client.application()
                 # success → flip online + reset backoff
@@ -285,9 +300,14 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         new_state: int,
         new_call: list[int],
     ) -> None:
-        """Classify a state change and fire matching HA events."""
+        """Classify a state change and fire matching HA events.
+
+        Also runs from the polling path (no telnet-tail needed), so daily
+        counters increment even without log-tail. Dedup via _fire().
+        """
         prev_has_call = bool(prev_call) and any(c for c in prev_call)
         new_has_call = bool(new_call) and any(c for c in new_call)
+        was_live = self.live_view_active
 
         # Always fire the generic transition event — automations can match on this
         self._fire(
@@ -301,11 +321,17 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         # Call started — could be incoming (doorbell) or outgoing.
-        # We don't know the exact enum value semantics yet; we'll treat any
-        # "no call → call" transition as a ring/incoming event for v0.1.
+        # We treat any "no call → call" transition as ring/incoming for v0.x.
         if not prev_has_call and new_has_call:
             self.doorbell_active = True
             self.call_active = True
+            self.last_doorbell_at = datetime.now(timezone.utc)
+            # Counters increment here (poll-path) AND in _on_log_event
+            # (log-tail-path); the _fire() dedup window keeps each visible
+            # event single, but we want the counter to bump exactly once per
+            # logical event so we only do it here in the poll path.
+            self.doorbell_count_today += 1
+            self.call_count_today += 1
             self._fire(EVENT_CALL_INCOMING, {"state": new_state, "call": new_call})
             self._fire(EVENT_DOORBELL_RINGING, {"state": new_state, "call": new_call})
 
@@ -314,8 +340,9 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.doorbell_active = False
             self.call_active = False
             self.live_view_active = False
+            self.live_view_started_at = None
             self._fire(EVENT_CALL_ENDED, {"state": new_state})
-            if self.live_view_active:
+            if was_live:
                 self._fire(EVENT_LIVE_VIEW_ENDED, {"state": new_state})
 
     # ─────────────────────────────────────────── log-tail callback (fast path)
@@ -347,26 +374,31 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         - Forward to MQTT-bridge if active
         """
         etype = event.get("type")
-        now = self.hass.loop.time()
+        wall_now = datetime.now(timezone.utc)
+        loop_now = self.hass.loop.time()
 
-        # State mirror + bookkeeping
+        # State mirror + bookkeeping.
+        # Counters (doorbell/call/unlock) are incremented from the POLL-PATH
+        # transition handler (`_on_state_transition`) to avoid double-counting
+        # when both poll-loop and log-tail are active. Door-unlocked is the
+        # exception: it has no poll-path equivalent (no state-machine flip),
+        # so we count it here.
         if etype == "doorbell_ringing":
             self.doorbell_active = True
-            self.last_doorbell_at = now
-            self.doorbell_count_today += 1
+            self.last_doorbell_at = wall_now
         elif etype == "call_incoming":
             self.call_active = True
             remote = event.get("remote_addr")
             if remote:
                 self.last_caller = remote
-            self.call_count_today += 1
         elif etype == "call_ended":
             self.call_active = False
             self.live_view_active = False
+            self.live_view_started_at = None
             self.outdoor_station_ringing = False
         elif etype == "live_view_started":
             self.live_view_active = True
-            self.live_view_started_at = now
+            self.live_view_started_at = loop_now
             from_uuid = event.get("from")
             if from_uuid:
                 self.last_app_user = from_uuid
@@ -376,7 +408,7 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif etype == "ringback":
             self.outdoor_station_ringing = event.get("state", 0) == 1
         elif etype == "door_unlocked":
-            self.last_unlock_at = now
+            self.last_unlock_at = wall_now
             self.unlock_count_today += 1
         elif etype == "cloud_connect":
             self.cloud_online = event.get("status") == "ok"

@@ -185,13 +185,23 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def svc_send_at(call: ServiceCall) -> dict[str, Any] | None:
         client = _first_client()
-        if not client: return None
+        if not client:
+            return None
         cmd = call.data["command"]
         target = call.data.get("target", "uart2d")
         expect = call.data.get("expect_response", False)
+
+        # Hardening — reject obvious abuse / shell-injection-style payloads
         if not cmd.startswith("AT+B"):
             _LOGGER.warning("send_at_command rejected — must start with 'AT+B': %r", cmd)
             return {"error": "command must start with 'AT+B'"}
+        if len(cmd) > 200:
+            _LOGGER.warning("send_at_command rejected — too long (%d): %r", len(cmd), cmd[:80])
+            return {"error": "command exceeds 200 chars"}
+        if any(ch in cmd for ch in ("\r", "\n", "\x00", ";")):
+            _LOGGER.warning("send_at_command rejected — illegal char (CR/LF/NUL/;): %r", cmd)
+            return {"error": "command contains CR/LF/NUL/;"}
+
         if target == "avlink":
             response = await client._avlink_query(cmd)  # noqa: SLF001
             return {"response": response}
