@@ -28,6 +28,10 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # Ignore checks that depend on GitHub repo metadata (description,
+          # topics) and on home-assistant/brands (icons). These are set
+          # outside the code and don't affect functional correctness.
+          ignore: brands topics
 
   tests:
     name: Pytest
