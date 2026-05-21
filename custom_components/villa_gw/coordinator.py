@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -97,8 +97,10 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tail_task: asyncio.Task | None = None
         # Auto-clear ticker — runs independently of the poll loop so doorbell
         # / live-view pulses still expire when the GW is offline and the poll
-        # loop is in a long exponential backoff.
+        # loop is in a long exponential backoff. Initialized here so the
+        # ticker can read it even before async_start_tasks runs.
         self._auto_clear_unsub = None  # type: ignore[assignment]
+        self._live_view_max_s = 60  # set properly in async_start_tasks
 
         # Optional MQTT-Bridge (set up by async_start_tasks if enabled)
         self.mqtt_bridge = None  # type: ignore[assignment]
@@ -150,12 +152,16 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Decoupled auto-clear tick: 1s cadence, independent of poll backoff.
         # Keeps doorbell pulse + stuck live-view-flag from lingering when the
         # GW is offline and the poll loop is in a long exponential backoff.
-        live_view_max_s = (
+        # IMPORTANT: pass the bound @callback method directly — wrapping it
+        # in a lambda would lose the @callback marker, and HA would run the
+        # tick from an executor thread (where async_set_updated_data is unsafe
+        # in 2026.x and beyond).
+        self._live_view_max_s = (
             opts.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION) + 30
         )
         self._auto_clear_unsub = async_track_time_interval(
             self.hass,
-            lambda _now: self._tick_auto_clear(live_view_max_s),
+            self._tick_auto_clear,
             timedelta(seconds=1),
         )
         if opts.get(CONF_ENABLE_LOG_TAIL, DEFAULT_ENABLE_LOG_TAIL):
@@ -202,11 +208,17 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.mqtt_bridge = None
 
     # ─────────────────────────────────────────── auto-clear ticker
-    def _tick_auto_clear(self, live_view_max_s: int) -> None:
+    @callback
+    def _tick_auto_clear(self, _now: datetime | None = None) -> None:
         """Expire transient pulses independently of poll cadence.
 
         Doorbell pulse → DOORBELL_PULSE_SECONDS (wall-clock).
-        Live-view → live_view_max_s (monotonic loop time).
+        Live-view → self._live_view_max_s (monotonic loop time).
+
+        Must stay sync + decorated with @callback so HA dispatches it on
+        the event loop (without that decorator HA classifies a plain
+        sync function as an executor job and `async_set_updated_data`
+        would run from a worker thread).
         """
         changed = False
         now_wall = datetime.now(timezone.utc)
@@ -219,9 +231,9 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (
             self.live_view_active
             and self.live_view_started_at is not None
-            and now_loop - self.live_view_started_at > live_view_max_s
+            and now_loop - self.live_view_started_at > self._live_view_max_s
         ):
-            _LOGGER.debug("live_view auto-clear after %.0fs", live_view_max_s)
+            _LOGGER.debug("live_view auto-clear after %.0fs", self._live_view_max_s)
             self.live_view_active = False
             self.live_view_started_at = None
             changed = True
