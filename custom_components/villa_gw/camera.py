@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
@@ -45,6 +46,7 @@ class VillaGwCamera(Camera):
         super().__init__()
         self.coordinator = coordinator
         self._attr_unique_id = f"{entry.unique_id}_camera"
+        self._attr_extra_state_attributes: dict[str, Any] = {}
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
             manufacturer="HHG / EGB",
@@ -55,6 +57,16 @@ class VillaGwCamera(Camera):
 
     async def stream_source(self) -> str | None:
         return await self.coordinator.client.rtsp_url()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        try:
+            url = await self.coordinator.client.rtsp_url()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("rtsp_url resolve failed: %s", err)
+            return
+        self._attr_extra_state_attributes["rtsp_url"] = url
+        self.async_write_ha_state()
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
