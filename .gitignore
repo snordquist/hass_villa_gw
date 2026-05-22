@@ -17,3 +17,4 @@ secrets.local.md
 .env.local
 firmware-dump/
 /tmp_dump/
+villa_gw_dump/
