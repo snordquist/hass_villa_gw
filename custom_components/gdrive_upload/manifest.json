@@ -1,0 +1,14 @@
+{
+  "domain": "gdrive_upload",
+  "name": "Google Drive Upload",
+  "codeowners": ["@snordquist"],
+  "config_flow": true,
+  "dependencies": ["google_drive"],
+  "documentation": "https://github.com/snordquist/hass_vp_villa",
+  "integration_type": "service",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/snordquist/hass_vp_villa/issues",
+  "loggers": ["custom_components.gdrive_upload"],
+  "requirements": [],
+  "version": "0.1.0"
+}
