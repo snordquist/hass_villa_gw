@@ -181,7 +181,7 @@ round-robin → uart2d sieht keine ACK-Frames mehr → **alle** Befehle timeoute
 avlink loggt `AT_UART_MONITOR response=err`. Diagnose-Schritt 1 bei "Wake/Unlock
 geht nicht": `ps | grep ttyS1` auf dem GW.
 
-## Open Items für `live_forensics.md`
+## Open Items für live_forensics.md (currently withdrawn — see [`../security.md`](../security.md))
 
 - [ ] `netstat -lntp | grep uart2d` — bestätige TCP 10087 + ggf. weitere
 - [ ] `netstat -lnup | grep uart2d` — bestätige UDP 9527 + Echo-Server

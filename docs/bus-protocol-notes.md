@@ -17,7 +17,7 @@ unverändert weiter. `avlink` 4.1.12 hat nur Mutex- und Logging-Fixes (`pthread_
 
 **UART-Setting:** 9600 baud (per `stty -F /dev/ttyS1`); termios-Setup via `cfsetispeed`/`cfsetospeed`/`tcsetattr` in `uart2d` bestätigt (Baudrate-Konstante als integer im Code, nicht als String).
 
-> **Wichtig zur Capture:** Während der Aufzeichnung liefen drei parallele `cat /dev/ttyS1`-Prozesse. Da das Kernel den seriellen Stream tty-internal zwischen Lesern aufteilt, sind die analysierten Frames **eine Teilmenge** des tatsächlichen Bus-Verkehrs. Plus: `cat /dev/ttyS1` zeigt nur RX-Frames vom Bus, **nicht TX-Frames** die `uart2d` schreibt. Für vollständige TX/RX-Aufzeichnung müsste ein LD_PRELOAD-Shim auf `uart2d`s `read`/`write`-Syscalls greifen — siehe [`reverse-engineering/live_forensics.md`](reverse-engineering/live_forensics.md).
+> **Wichtig zur Capture:** Während der Aufzeichnung liefen drei parallele `cat /dev/ttyS1`-Prozesse. Da das Kernel den seriellen Stream tty-internal zwischen Lesern aufteilt, sind die analysierten Frames **eine Teilmenge** des tatsächlichen Bus-Verkehrs. Plus: `cat /dev/ttyS1` zeigt nur RX-Frames vom Bus, **nicht TX-Frames** die `uart2d` schreibt. Für vollständige TX/RX-Aufzeichnung müsste ein LD_PRELOAD-Shim auf `uart2d`s `read`/`write`-Syscalls greifen — siehe `reverse-engineering/live_forensics.md` (currently withdrawn — see [`security.md`](security.md)).
 
 ---
 
@@ -168,7 +168,7 @@ Folgende Events, die im Cloud-MQTT-/REST-Pfad bekannt sind, **fehlen** in dieser
 
 Der Bus war während der ~Minute Aufzeichnung **im reinen Polling-Modus**.
 
-Außerdem zeigt eine `cat /dev/ttyS1`-Aufzeichnung **nur RX**, nicht TX — Frames die `uart2d` *schreibt* (= alle Action-Frames Richtung Outdoor) sind grundsätzlich unsichtbar. Für TX-Capture braucht es einen LD_PRELOAD-Shim auf `uart2d`s `read`/`write`-Syscalls (siehe [`reverse-engineering/live_forensics.md`](reverse-engineering/live_forensics.md)).
+Außerdem zeigt eine `cat /dev/ttyS1`-Aufzeichnung **nur RX**, nicht TX — Frames die `uart2d` *schreibt* (= alle Action-Frames Richtung Outdoor) sind grundsätzlich unsichtbar. Für TX-Capture braucht es einen LD_PRELOAD-Shim auf `uart2d`s `read`/`write`-Syscalls (siehe `reverse-engineering/live_forensics.md` (currently withdrawn — see [`security.md`](security.md))).
 
 ---
 

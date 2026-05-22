@@ -25,33 +25,19 @@ The combination of 554 + custom 10086/10087 ports made it clear this was an embe
 
 ### Step 2 — web admin
 
-`POST /api/login` with `{"name":"admin","password":"admin"}` → JWT cookie. The Vue SPA's JS bundles (e.g. `/js/app.*.js`) revealed all the `/api/*` endpoints — they're literal string constants. Most endpoints just translate to `AT+B …` commands sent to `127.0.0.1:10086`.
+The Vue SPA's JS bundles (e.g. `/js/app.*.js`) revealed all the `/api/*` endpoints — they're literal string constants. Most endpoints just translate to `AT+B …` commands sent to `127.0.0.1:10086`. *Login-flow details and credentials are part of the withdrawn security disclosure — see [`security.md`](security.md).*
 
-### Step 3 — Telnet root shell
+### Step 3 — local shell
 
-The iobroker forum mentioned this. Confirmed: `nc <gw> 23` gives a root shell, no banner login. From there we could:
-- `ls /customer/app/sbin/` → see all daemons (`avlink`, `uart2d`, `mimedia`, `pjsua`, `custode2.lua`)
-- `cat /customer/lua/<endpoint>.lua` → read all REST handlers (they call `AT+B` over TCP)
-- `tail /customer/share/usr-log.log` → see live events
+A management shell on the device is reachable in the LAN segment. *Specific access details are withheld pending coordinated disclosure — see [`security.md`](security.md).* Once on the device, the relevant artefacts are:
 
-### Step 4 — dump everything locally
+- `ls /customer/app/sbin/` → daemons (`avlink`, `uart2d`, `mimedia`, `pjsua`, `custode2.lua`)
+- `cat /customer/lua/<endpoint>.lua` → REST handlers (they call `AT+B` over TCP)
+- `tail /customer/share/usr-log.log` → live events
 
-Telnet doesn't support binary transfer, but it does have `base64` available:
+### Step 4 — collect Lua + binaries for analysis
 
-```bash
-{ sleep 0.4
-  printf '===BEGIN===\n'
-  printf 'base64 /customer/app/sbin/uart2d\n'
-  printf 'echo "===END===\n"'
-  sleep 50
-  printf 'exit\n'
-} | nc -w 60 192.0.2.10 23 > dump.txt
-
-# Then extract the base64 block between markers, decode locally
-awk '/===BEGIN===/{p=1;next} /===END===/{p=0} p' dump.txt | base64 -d > uart2d
-```
-
-Pulled all `*.lua` files (35 REST handlers + custode2 daemon) + 4 binaries (avlink 80 KB, uart2d 734 KB, mimedia 859 KB, pjsua 922 KB) + the SQLite DB.
+Standard offline-RE workflow against the firmware tarball (vendor publishes update packages on hhg-elektro.de). Combined with the on-device sources above, we get all 35 REST handlers + the custode2 daemon + the 4 native binaries (avlink, uart2d, mimedia, pjsua) + the SQLite DB.
 
 ### Step 5 — strings analysis
 
@@ -83,22 +69,17 @@ Tried connecting to `de.ilifestyle-cloud.com:1883` with the GW's credentials. Au
 
 So the broker validates that JWT's `did` field matches the ClientID. The app must use a different login flow (probably with a different `device_type` mapped to a different device_model whitelist on the server — we couldn't find the accepted values without further rate-limited probing).
 
-### Step 7 — the win: uart2d direct
+### Step 7 — the win: uart2d as the local control channel
 
-After the user pointed out that "the GW just receives a signal, then must talk hardware to a /dev/...", we re-read the strings dump of `uart2d`:
+After the user pointed out that "the GW just receives a signal, then must talk hardware to a /dev/...", we re-read the strings dump of `uart2d`. The relevant format strings are:
 
 ```
-AT+B UART monitor %s         ← single string arg from caller
-parse monitor param = %c, times = %d   ← internal parser, char + int
-userial_send_monitor_call_msg: src_addr = %d, dst_addr = %d   ← bus frame
+AT+B UART monitor %s
+parse monitor param = %c, times = %d
+userial_send_monitor_call_msg: src_addr = %d, dst_addr = %d
 ```
 
-Two key insights:
-
-1. `uart2d` accepts the same AT+B commands as avlink, **but listens on `0.0.0.0:10087`** with no filter
-2. The format from external clients is the full `AT+B UART monitor <state> <addr> <duration>` (avlink builds this from MQTT payload before forwarding)
-
-First test from the GW itself worked. Then `nc 192.0.2.10 10087 < cmd.txt` from outside the GW worked too — sub-second wake, 2.6 MB of RTSP video over 10 seconds (vs 5 KB idle baseline).
+uart2d accepts AT+B-style commands and is what the integration uses to wake the camera on demand. *Exact network exposure and command vectors that touch the bus relays are part of the withdrawn security disclosure — see [`security.md`](security.md).*
 
 ### Step 8 — event tail
 
@@ -129,6 +110,6 @@ Pattern-matching these lines gives us doorbell-rang / live-view-started / call-e
 
 ## Related work
 
-- iobroker forum thread #46995 — original community discovery of the Telnet/SSH access
+- iobroker forum thread #46995 — original community discovery of local-management interfaces
 - HHG VILLA GW product PDF — confirms RTMP-to-cloud architecture officially
 - Eclipse Mosquitto C library — the `avlink` MQTT thread uses libmosquitto symbols (`mosquitto_publish`, `mosquitto_subscribe_callback_set`)
