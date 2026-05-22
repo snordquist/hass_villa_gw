@@ -7,7 +7,6 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
-from homeassistant.helpers import selector
 
 from .const import CONF_DRIVE_ENTRY_ID, DOMAIN
 
@@ -23,6 +22,21 @@ class GdriveUploadConfigFlow(ConfigFlow, domain=DOMAIN):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
 
+        drive_entries = [
+            entry
+            for entry in self.hass.config_entries.async_entries("google_drive")
+            if entry.state.name == "LOADED"
+        ]
+        if not drive_entries:
+            return self.async_abort(reason="no_google_drive_entry")
+
+        # Common case: exactly one google_drive entry — auto-pick, skip form.
+        if len(drive_entries) == 1 and user_input is None:
+            return self.async_create_entry(
+                title="Google Drive Upload",
+                data={CONF_DRIVE_ENTRY_ID: drive_entries[0].entry_id},
+            )
+
         if user_input is not None:
             entry_id = user_input[CONF_DRIVE_ENTRY_ID]
             drive_entry: ConfigEntry | None = self.hass.config_entries.async_get_entry(
@@ -37,8 +51,8 @@ class GdriveUploadConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_DRIVE_ENTRY_ID): selector.ConfigEntrySelector(
-                    {"integration": "google_drive"}
+                vol.Required(CONF_DRIVE_ENTRY_ID): vol.In(
+                    {entry.entry_id: entry.title for entry in drive_entries}
                 ),
             }
         )
