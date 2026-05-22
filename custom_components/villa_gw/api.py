@@ -14,6 +14,7 @@ Optional:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -109,7 +110,12 @@ class VillaGwClient:
             if self._token:
                 return self._token
             url = f"http://{self._host}:{PORT_WEB}/api/login"
-            body = {"name": self._user, "password": self._pw}
+            # FW 4.1.12+ expects the client to MD5-hash the password (the
+            # web UI's JS does the same). 4.1.11 expected cleartext, but
+            # 4.1.12 normalises both sides so MD5 works regardless of
+            # whether the DB stores cleartext or a hash.
+            pw_hash = hashlib.md5(self._pw.encode()).hexdigest()
+            body = {"name": self._user, "password": pw_hash}
             try:
                 async with self._session.post(url, json=body, timeout=10) as resp:
                     data = await resp.json(content_type=None)
