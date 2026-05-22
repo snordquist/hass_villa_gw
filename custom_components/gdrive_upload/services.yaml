@@ -1,0 +1,27 @@
+upload:
+  name: Upload file
+  description: >-
+    Upload a local file to Google Drive (creates folder path if missing).
+    Optionally creates an anyone-with-link permission and returns its URL.
+  fields:
+    file_path:
+      name: File path
+      description: Absolute local path of the file to upload.
+      required: true
+      example: /media/doorbell/2026-05-22_19-04-32_doorbell.mp4
+      selector:
+        text:
+    folder_path:
+      name: Drive folder path
+      description: Slash-delimited folder path inside Drive (created if missing).
+      required: true
+      example: HomeAssistant/Doorbell/2026/05
+      selector:
+        text:
+    share:
+      name: Make shareable
+      description: Add anyone-with-link reader permission and return the URL.
+      required: false
+      default: false
+      selector:
+        boolean:
