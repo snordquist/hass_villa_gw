@@ -235,11 +235,22 @@ class VillaGwOptionsFlow(OptionsFlow):
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._entry = config_entry
+        # Held between init- and cloud-step so the cloud-step result can
+        # be merged into the original toggle payload on commit.
+        self._pending_options: dict[str, Any] | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         if user_input is not None:
+            # Enabling cloud on an entry that has no cached SIP creds yet
+            # requires the creds step — route there and finalize on return.
+            data = {**self._entry.data, **self._entry.options}
+            wants_cloud = user_input.get(CONF_ENABLE_CLOUD, False)
+            has_cached_creds = bool(data.get(CONF_CACHED_SIP_ID))
+            if wants_cloud and not has_cached_creds:
+                self._pending_options = dict(user_input)
+                return await self.async_step_cloud()
             return self.async_create_entry(title="", data=user_input)
 
         current = {**self._entry.data, **self._entry.options}
@@ -275,6 +286,72 @@ class VillaGwOptionsFlow(OptionsFlow):
                         CONF_MQTT_BASE_TOPIC,
                         default=current.get(CONF_MQTT_BASE_TOPIC, DEFAULT_MQTT_BASE_TOPIC),
                     ): str,
+                    vol.Required(
+                        CONF_ENABLE_CLOUD,
+                        default=current.get(CONF_ENABLE_CLOUD, DEFAULT_ENABLE_CLOUD),
+                    ): bool,
                 }
             ),
+        )
+
+    async def async_step_cloud(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Collect Cloud creds when enabling SIP listener post-setup.
+
+        Persists `cached_sip_*` + `ha_device_id` into the entry's `data`
+        via `async_update_entry` (options-flow normally only writes to
+        `options`, but these are persistent identity, not user-tweakable
+        settings). The toggle itself goes through options as usual.
+        """
+        if self._pending_options is None:
+            raise RuntimeError("async_step_cloud called without pending options")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            session = async_get_clientsession(self.hass)
+            client = CloudApiClient(session=session)
+            # Reuse the existing ha_device_id if present — fresh setups
+            # mint a new one. Stable id keeps Cloud's device-record under
+            # the user's account from drifting on re-configures.
+            existing = {**self._entry.data, **self._entry.options}
+            ha_device_id = existing.get(CONF_HA_DEVICE_ID) or generate_ha_device_id()
+            binding_code = (user_input.get(CONF_BINDING_CODE) or "").strip() or None
+            try:
+                cloud_data = await setup_cloud_device(
+                    client,
+                    email=user_input[CONF_CLOUD_EMAIL],
+                    password=user_input[CONF_CLOUD_PASSWORD],
+                    device_id=ha_device_id,
+                    binding_code=binding_code,
+                )
+            except CloudAuthError:
+                errors["base"] = "cloud_invalid_auth"
+            except CloudConnectionError:
+                errors["base"] = "cloud_cannot_connect"
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error during Cloud setup (options)")
+                errors["base"] = "unknown"
+            else:
+                new_data = {
+                    **self._entry.data,
+                    CONF_CLOUD_EMAIL:         user_input[CONF_CLOUD_EMAIL],
+                    CONF_CLOUD_PASSWORD:      user_input[CONF_CLOUD_PASSWORD],
+                    CONF_HA_DEVICE_ID:        ha_device_id,
+                    CONF_CACHED_CLOUD_UID:    cloud_data["uid"],
+                    CONF_CACHED_CITY_ID:      cloud_data["city_id"],
+                    CONF_CACHED_SIP_ID:       cloud_data["sip_id"],
+                    CONF_CACHED_SIP_PASSWORD: cloud_data["sip_password"],
+                    CONF_CACHED_SIP_SERVER:   cloud_data["sip_server"],
+                }
+                self.hass.config_entries.async_update_entry(
+                    self._entry, data=new_data,
+                )
+                return self.async_create_entry(
+                    title="", data=self._pending_options,
+                )
+
+        return self.async_show_form(
+            step_id="cloud",
+            data_schema=STEP_CLOUD_SCHEMA,
+            errors=errors,
         )

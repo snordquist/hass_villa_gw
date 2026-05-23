@@ -50,9 +50,24 @@
           "enable_log_tail": "Enable Telnet log-tail fast-path",
           "enable_mqtt_bridge": "Enable MQTT bridge",
           "enable_mqtt_discovery": "Publish MQTT-Discovery configs",
-          "mqtt_base_topic": "MQTT base topic"
+          "mqtt_base_topic": "MQTT base topic",
+          "enable_cloud": "Enable iLifestyle Cloud SIP listener"
+        }
+      },
+      "cloud": {
+        "title": "iLifestyle Cloud account",
+        "description": "Use the same email/password you registered in the iLifestyle phone app. Home Assistant will register as an additional Cloud endpoint so doorbell rings are delivered in parallel with your phone. The binding code is optional — leave empty unless your device-owner specifically gave you one.",
+        "data": {
+          "cloud_email": "Account email",
+          "cloud_password": "Account password",
+          "binding_code": "Binding code (optional)"
         }
       }
+    },
+    "error": {
+      "cloud_cannot_connect": "Cannot reach the iLifestyle Cloud — check your internet connection",
+      "cloud_invalid_auth": "Cloud login rejected — check your iLifestyle account email/password",
+      "unknown": "Unexpected error — see Home Assistant logs"
     }
   },
   "entity": {
