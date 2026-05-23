@@ -37,6 +37,7 @@ The iLifestyle app stays fully functional alongside.
 - 🔄 **Camera switch** (button) — cycle through outdoor stations
 - 📸 **Snapshot** (button + sensor) — single MJPG snapshot
 - 📊 **System status** (sensors) — uptime, memory, SIP/MQTT/RTMP cloud status, door-pin ADC
+- ☁️ **Cloud SIP ring listener** (opt-in) — registers as a 2nd App-User at the iLifestyle Cloud and receives the same SIP-INVITE the phone app gets. Adds a third, fully redundant ring-detection path that survives even when the GW's local management shell is offline. Silent observer — does not interfere with the iPhone fork.
 
 ## Requirements
 
@@ -72,28 +73,51 @@ UI-driven via Config Flow. You will be asked for:
 
 The integration auto-discovers the camera RTSP URL, opens a persistent local event channel, and registers all entities.
 
+### Optional: Cloud SIP ring listener
+
+Toggle **Enable iLifestyle Cloud SIP listener** on the first config step (or later via the integration's Options) to add a redundant ring path through the iLifestyle Cloud. You'll be asked for the same email + password you use in the iLifestyle phone app.
+
+What happens under the hood: the integration logs in to `de.ilifestyle-cloud.com`, the Cloud auto-issues a fresh `sip_id` + `sip_password` for a new device-record (stable `homeassistant-villa-<hex>` id, persisted in the entry), and a background task maintains a TLS SIP-REGISTER session on port 5061. On every doorbell ring the Cloud forks the SIP-INVITE to all bound endpoints; HA receives it without sending any SIP response, so the iPhone app continues to ring normally.
+
+Ring events from all three paths (local poll loop, telnet log-tail, Cloud SIP) are deduplicated within a 2-second window — you get exactly one `villa_gw_doorbell_ringing` HA event per real press. The `sensor.villa_gw_last_ring_source` diagnostic shows which path won the race (`sip`, `log`, or `poll`).
+
+Cloud setup is fully self-driving: no manual `sip_id` lookup, no binding-code hunting (the binding code field is optional and best-effort). If you skip the Cloud step, the integration runs in fully-local mode as before.
+
 ## How it works
 
 ```
-  ┌───────────────────────────────────────────────────────────────┐
-  │  Home Assistant                                                │
-  │                                                                │
-  │  ┌──────────────────┐    persistent     ┌──────────────────┐ │
-  │  │  Event Listener  │ ◄────── tail ─────┤  Villa GW logs   │ │
-  │  │  (parse logs)    │                   │                  │ │
-  │  └────────┬─────────┘                   └──────────────────┘ │
-  │           │                                                   │
-  │           ▼                                                    │
-  │  ┌──────────────────┐    on-demand      ┌──────────────────┐ │
-  │  │  HA Entities     │ ──── TCP ────────►│  Villa GW        │ │
-  │  │  (button/lock)   │   AT+B UART ...   │  (uart2d)        │ │
-  │  └──────────────────┘                   └──────────────────┘ │
-  │                                                                │
-  │  ┌──────────────────┐    RTSP-pull      ┌──────────────────┐ │
-  │  │  Camera Entity   │ ◄─────────────────┤  Villa GW :554   │ │
-  │  │  (ffmpeg)        │                   │  (mimedia)       │ │
-  │  └──────────────────┘                   └──────────────────┘ │
-  └───────────────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Home Assistant                                                          │
+  │                                                                          │
+  │  ┌──────────────────┐    1s poll        ┌──────────────────┐            │
+  │  │  AT+B APP poller │ ◄─────────────────┤  Villa GW        │            │
+  │  │  (state machine) │                   │  (avlink:10086)  │            │
+  │  └────────┬─────────┘                   └──────────────────┘            │
+  │           │                                                              │
+  │  ┌──────────────────┐   tail telnet     ┌──────────────────┐            │
+  │  │  Log-tail parser │ ◄────────────────┤  Villa GW logs    │            │
+  │  │  (optional)      │                   │  (:23)           │            │
+  │  └────────┬─────────┘                   └──────────────────┘            │
+  │           │                                                              │
+  │  ┌──────────────────┐   TLS SIP REG     ┌──────────────────┐            │
+  │  │  Cloud SIP       │ ◄────────────────►│  de.ilifestyle-  │            │
+  │  │  listener (opt)  │   forked INVITE   │  cloud.com:5061  │            │
+  │  └────────┬─────────┘                   └──────────────────┘            │
+  │           ▼                                                              │
+  │  ┌──────────────────┐    on-demand      ┌──────────────────┐            │
+  │  │  HA Entities     │ ──── TCP ────────►│  Villa GW        │            │
+  │  │  (button/lock)   │   AT+B UART ...   │  (uart2d:10087)  │            │
+  │  └──────────────────┘                   └──────────────────┘            │
+  │                                                                          │
+  │  ┌──────────────────┐    RTSP-pull      ┌──────────────────┐            │
+  │  │  Camera Entity   │ ◄─────────────────┤  Villa GW :554   │            │
+  │  │  (ffmpeg)        │                   │  (mimedia)       │            │
+  │  └──────────────────┘                   └──────────────────┘            │
+  │                                                                          │
+  │  All three ring sources feed `_fire(EVENT_DOORBELL_RINGING)` which       │
+  │  dedups within a 2 s window — exactly one HA event per real press.       │
+  │  `sensor.last_ring_source` shows which path won.                         │
+  └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 See [`docs/`](docs/) for protocol details, reverse-engineering notes, and a security review.
