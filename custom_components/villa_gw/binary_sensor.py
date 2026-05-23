@@ -68,6 +68,16 @@ BINARY_SENSORS: tuple[VillaGwBinarySensorDescription, ...] = (
         icon="mdi:cloud-check",
         is_on=lambda c: c.cloud_online,
     ),
+    # Cloud SIP-REGISTER session — true while the HA-side SIP listener
+    # is successfully registered with the iLifestyle Cloud and will
+    # receive forked SIP-INVITEs on doorbell rings.
+    VillaGwBinarySensorDescription(
+        key="cloud_sip_connected",
+        translation_key="cloud_sip_connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        icon="mdi:phone-in-talk",
+        is_on=lambda c: c.cloud_sip_connected,
+    ),
     # Reflects whether the polling loop is currently reaching the GW.
     # Drops to OFF after sustained failures (capped exp backoff).
     VillaGwBinarySensorDescription(

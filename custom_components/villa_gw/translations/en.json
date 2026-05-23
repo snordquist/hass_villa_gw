@@ -77,6 +77,7 @@
       "live_view_active": {"name": "Live view active"},
       "outdoor_station_ringing": {"name": "Outdoor station ringing"},
       "cloud_online": {"name": "Cloud connection"},
+      "cloud_sip_connected": {"name": "Cloud SIP listener"},
       "gateway_online": {"name": "Gateway reachable"}
     },
     "sensor": {
@@ -87,6 +88,7 @@
       "last_unlock": {"name": "Last unlock"},
       "last_caller": {"name": "Last caller"},
       "last_app_user": {"name": "Last app user"},
+      "last_ring_source": {"name": "Last ring source"},
       "stream_mode": {"name": "Stream mode"},
       "firmware": {"name": "Firmware"},
       "uptime": {"name": "Uptime"},

@@ -408,7 +408,10 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.doorbell_count_today += 1
             self.call_count_today += 1
             self._fire(EVENT_CALL_INCOMING, {"state": new_state, "call": new_call})
-            self._fire(EVENT_DOORBELL_RINGING, {"state": new_state, "call": new_call})
+            self._fire(
+                EVENT_DOORBELL_RINGING,
+                {"source": "poll", "state": new_state, "call": new_call},
+            )
 
         # Call ended
         if prev_has_call and not new_has_call:
@@ -548,7 +551,14 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if etype == "monitor_response" and event.get("response") != "ok":
                 ha_event = None
         if ha_event:
-            self._fire(ha_event, event)
+            # Tag ring events with `source="log"` so the diagnostic sensor
+            # `last_ring_source` can show which path won the dedup race.
+            # Only set if upstream didn't already supply one — keeps the
+            # log dict authoritative on its own fields.
+            payload = dict(event)
+            if ha_event == EVENT_DOORBELL_RINGING and "source" not in payload:
+                payload["source"] = "log"
+            self._fire(ha_event, payload)
 
         # Forward to MQTT-bridge if enabled
         if self.mqtt_bridge:

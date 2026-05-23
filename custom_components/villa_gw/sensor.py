@@ -137,6 +137,16 @@ SENSORS: tuple[VillaGwSensorDescription, ...] = (
         value=lambda c: c.last_app_user,
         entity_registry_enabled_default=False,
     ),
+    # Which event-source path won the dedup race for the most recent ring.
+    # Values: "sip" | "log" | "poll" | None. Useful for diagnostics when
+    # comparing the three parallel ring-detection paths.
+    VillaGwSensorDescription(
+        key="last_ring_source",
+        translation_key="last_ring_source",
+        icon="mdi:source-branch",
+        value=lambda c: c.last_ring_source,
+        entity_registry_enabled_default=False,
+    ),
     VillaGwSensorDescription(
         key="stream_mode",
         translation_key="stream_mode",
