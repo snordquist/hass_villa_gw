@@ -9,13 +9,29 @@ parallel with the official iLifestyle phone app.
 
 from __future__ import annotations
 
+import logging
+import secrets
 from dataclasses import dataclass
 from enum import Enum
 
 import aiohttp
 
 
+_LOGGER = logging.getLogger(__name__)
+
 CLOUD_BASE = "https://de.ilifestyle-cloud.com/api"
+
+
+def generate_ha_device_id() -> str:
+    """Build a stable-shape, unique-per-call HA device id.
+
+    Cloud's `/api/v2/login` creates one device_record per `device_id` under
+    our account. Using a fresh random id per HA-integration-instance keeps
+    re-installs isolated (no shared SIP-creds between two HA hosts), while
+    the `homeassistant-villa-` prefix makes phantom-record cleanup trivial.
+    """
+    # 6 bytes → 48 bits → ~6 chance-in-trillion of collision even at 10k installs
+    return f"homeassistant-villa-{secrets.token_hex(6)}"
 DEVICE_TYPE_ANDROID = 3
 DEVICE_MODEL_ANDROID = "Android"
 
@@ -93,21 +109,34 @@ class CloudApiClient:
             "app":          1,
             "type":         1,
         }
+        _LOGGER.debug("Cloud login → device_id=%s email=%s", device_id, email)
         try:
             async with self._session.post(f"{CLOUD_BASE}/v2/login", json=body) as resp:
                 data = await resp.json()
         except aiohttp.ClientError as err:
+            _LOGGER.debug("Cloud login network error: %s", err)
             raise CloudConnectionError(str(err)) from err
         if data.get("code") != 0:
-            raise CloudAuthError(f"login rejected: {data}")
+            _LOGGER.debug("Cloud login rejected code=%s msg=%s", data.get("code"), (data.get("msg") or data.get("message")))
+            # Only include code+msg in the exception text — the full response
+            # body could echo back submitted creds in some failure paths.
+            raise CloudAuthError(
+                f"login rejected: code={data.get('code')} "
+                f"msg={data.get('msg') or data.get('message')}",
+            )
         try:
-            return LoginResult(
+            result = LoginResult(
                 token=data["token"],
                 uid=data["id"],
                 city_id=data["city_id"],
             )
         except KeyError as err:
-            raise CloudAuthError(f"malformed login response: {data}") from err
+            _LOGGER.debug("Cloud login malformed response keys=%s", list(data.keys()))
+            raise CloudAuthError(
+                f"malformed login response: missing keys (got {list(data.keys())})",
+            ) from err
+        _LOGGER.debug("Cloud login OK uid=%s city_id=%s", result.uid, result.city_id)
+        return result
 
     async def get_device_info(
         self, *, device_id: str, token: str,
@@ -122,17 +151,26 @@ class CloudApiClient:
         # truncate the value.
         url = f"{CLOUD_BASE}/device"
         headers = {"Cookie": f"token={token}"}
+        _LOGGER.debug("Cloud device-info → device_id=%s", device_id)
         try:
             async with self._session.get(
                 url, params={"id": device_id}, headers=headers,
             ) as resp:
                 data = await resp.json()
         except aiohttp.ClientError as err:
+            _LOGGER.debug("Cloud device-info network error: %s", err)
             raise CloudConnectionError(str(err)) from err
         if data.get("code") != 0:
-            raise CloudAuthError(f"device info rejected: {data}")
+            _LOGGER.debug(
+                "Cloud device-info rejected code=%s msg=%s",
+                data.get("code"), (data.get("msg") or data.get("message")),
+            )
+            raise CloudAuthError(
+                f"device info rejected: code={data.get('code')} "
+                f"msg={data.get('msg') or data.get('message')}",
+            )
         try:
-            return DeviceInfo(
+            info = DeviceInfo(
                 device_id=data["id"],
                 sip_id=data["sip_id"],
                 sip_password=data["password"],
@@ -140,7 +178,17 @@ class CloudApiClient:
                 video_url=data.get("video_url"),
             )
         except KeyError as err:
-            raise CloudAuthError(f"malformed device info response: {data}") from err
+            _LOGGER.debug("Cloud device-info malformed response keys=%s", list(data.keys()))
+            # Response carries sip_password — never include `data` in the
+            # exception message; only the key list is safe.
+            raise CloudAuthError(
+                f"malformed device info response: missing keys (got {list(data.keys())})",
+            ) from err
+        _LOGGER.debug(
+            "Cloud device-info OK sip_id=%s sip_server=%s",
+            info.sip_id, info.sip_server,
+        )
+        return info
 
     async def bind_device(
         self, *, binding_code: str, token: str,
@@ -155,19 +203,29 @@ class CloudApiClient:
         """
         url = f"{CLOUD_BASE}/device"
         headers = {"Cookie": f"token={token}"}
+        # Don't log any prefix of the binding_code — it's a short shared secret;
+        # even 4 chars meaningfully shrinks the search space for an attacker.
+        _LOGGER.debug("Cloud bind → binding_code=<len=%d>", len(binding_code) if binding_code else 0)
         try:
             async with self._session.post(
                 url, json={"code": binding_code}, headers=headers,
             ) as resp:
                 data = await resp.json()
         except aiohttp.ClientError as err:
+            _LOGGER.debug("Cloud bind network error: %s", err)
             raise CloudConnectionError(str(err)) from err
         code = data.get("code")
         if code == 0:
+            _LOGGER.debug("Cloud bind OK (fresh)")
             return BindResult.BOUND
         if code == 2:
+            _LOGGER.debug("Cloud bind already-bound (code=2 DuplicateEntry — still success)")
             return BindResult.ALREADY_BOUND
-        raise CloudAuthError(f"bind rejected: {data}")
+        _LOGGER.debug("Cloud bind rejected code=%s msg=%s", code, (data.get("msg") or data.get("message")))
+        raise CloudAuthError(
+            f"bind rejected: code={code} "
+            f"msg={data.get('msg') or data.get('message')}",
+        )
 
 
 async def setup_cloud_device(

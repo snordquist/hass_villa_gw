@@ -14,13 +14,25 @@
           "enable_log_tail": "Enable Telnet log-tail (faster, but requires open telnet)",
           "enable_mqtt_bridge": "Enable MQTT bridge (publish events to HA Mosquitto)",
           "enable_mqtt_discovery": "Publish MQTT-Discovery configs (auto-creates entities — disable when using the custom-component)",
-          "mqtt_base_topic": "MQTT base topic"
+          "mqtt_base_topic": "MQTT base topic",
+          "enable_cloud": "Enable iLifestyle Cloud SIP listener (recommended — needed for instant ring detection)"
+        }
+      },
+      "cloud": {
+        "title": "iLifestyle Cloud account",
+        "description": "Use the same email/password you registered in the iLifestyle phone app. Home Assistant will register as an additional Cloud endpoint so doorbell rings are delivered in parallel with your phone. The binding code is optional — leave empty unless your device-owner specifically gave you one.",
+        "data": {
+          "cloud_email": "Account email",
+          "cloud_password": "Account password",
+          "binding_code": "Binding code (optional)"
         }
       }
     },
     "error": {
       "cannot_connect": "Cannot reach the Villa GW at that address",
       "invalid_auth": "Web admin login rejected — check username/password",
+      "cloud_cannot_connect": "Cannot reach the iLifestyle Cloud — check your internet connection",
+      "cloud_invalid_auth": "Cloud login rejected — check your iLifestyle account email/password",
       "unknown": "Unexpected error — see Home Assistant logs"
     },
     "abort": {

@@ -18,6 +18,20 @@ CONF_ENABLE_MQTT_BRIDGE = "enable_mqtt_bridge"
 CONF_ENABLE_MQTT_DISCOVERY = "enable_mqtt_discovery"
 CONF_MQTT_BASE_TOPIC = "mqtt_base_topic"
 
+# Cloud-side configuration — Phase 1 of integration extension
+# (see villa_gw/cloud_fcm/INTEGRATION_PLAN.md)
+CONF_ENABLE_CLOUD = "enable_cloud"
+CONF_CLOUD_EMAIL = "cloud_email"
+CONF_CLOUD_PASSWORD = "cloud_password"
+CONF_HA_DEVICE_ID = "ha_device_id"             # generated once, persistent
+CONF_BINDING_CODE = "binding_code"              # optional, formal bind
+# Cached cloud-side credentials (auto-refreshed by coordinator on auth-fail)
+CONF_CACHED_SIP_ID = "cached_sip_id"
+CONF_CACHED_SIP_PASSWORD = "cached_sip_password"
+CONF_CACHED_SIP_SERVER = "cached_sip_server"
+CONF_CACHED_CLOUD_UID = "cached_cloud_uid"
+CONF_CACHED_CITY_ID = "cached_city_id"
+
 # Defaults
 DEFAULT_WEB_USERNAME = "admin"
 DEFAULT_WEB_PASSWORD = "admin"
@@ -29,6 +43,9 @@ DEFAULT_POLL_INTERVAL_MS = 1000  # 1 s — main event-detection cadence
 DEFAULT_ENABLE_MQTT_BRIDGE = False  # opt-in: publish events to HA-Mosquitto
 DEFAULT_ENABLE_MQTT_DISCOVERY = False  # off → only events, no auto-create
 DEFAULT_MQTT_BASE_TOPIC = "villa_gw"
+
+# Cloud defaults
+DEFAULT_ENABLE_CLOUD = False  # opt-in: Cloud-SIP listener for ring events
 
 # Capped exponential backoff for any persistent connection (telnet tail, poll loop)
 BACKOFF_INITIAL_S = 2.0     # first retry after 2s
