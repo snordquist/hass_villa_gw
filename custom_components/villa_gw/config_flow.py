@@ -196,8 +196,10 @@ class VillaGwConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
             else:
                 # Merge GW + Cloud into a single entry. Email+password are
-                # persisted so the coordinator can re-issue SIP-credentials
-                # via /api/v2/login if the cached pair ever rotates or fails.
+                # persisted so a future refresh path can re-call
+                # /api/v2/login without re-prompting the user (planned —
+                # 0.1.0 still relies on the cached sip_id/password and
+                # requires the options flow to refresh on rotation).
                 data = {
                     **self._gw_data,
                     CONF_CLOUD_EMAIL:           user_input[CONF_CLOUD_EMAIL],

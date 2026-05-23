@@ -337,9 +337,17 @@ class SipClient:
         first_line = msg.split("\r\n", 1)[0]
         if first_line.startswith("INVITE "):
             info = extract_invite_info(msg)
+            cid = info["call_id"]
             now_mono = self._now_fn()
             self._evict_stale_invites(now_mono)
-            self._active_invites[info["call_id"]] = (
+            # SIP INVITE retransmits (same Call-ID, e.g. on a brief TCP
+            # blip just after the first send) must NOT replace the dialog
+            # tag — if a CANCEL arrives later it carries the original
+            # tag, and our 487 must match. Keep the first INVITE intact
+            # and skip re-firing the on_invite callback.
+            if cid in self._active_invites:
+                return
+            self._active_invites[cid] = (
                 msg, f"hass-{secrets.token_hex(4)}", now_mono,
             )
             # Silent mode — do NOT send any SIP response. The Cloud will let

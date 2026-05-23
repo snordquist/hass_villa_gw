@@ -60,8 +60,11 @@ end-to-end auto-discovery (no manual `sip_id` / `binding_code` lookup).
   (the full Cloud response body is omitted because `/api/device` carries
   `sip_password`). Binding code is logged only as `<len=N>`.
 - Cloud email/password are persisted in HA's encrypted config entry
-  storage so the coordinator can re-issue SIP credentials on rotation
-  without re-prompting the user.
+  storage. The cached `sip_id`/`sip_password` are reused on every
+  reconnect; if the Cloud rotates them, the listener fails to
+  REGISTER and the user must currently re-run the options flow to
+  refresh. Automatic re-login on REGISTER-401 is planned but not
+  yet implemented in 0.1.0.
 
 ## [0.0.3] and earlier
 
