@@ -36,6 +36,10 @@ from .const import (
     BACKOFF_INITIAL_S,
     BACKOFF_JITTER,
     BACKOFF_MAX_S,
+    CONF_CACHED_SIP_ID,
+    CONF_CACHED_SIP_PASSWORD,
+    CONF_CACHED_SIP_SERVER,
+    CONF_ENABLE_CLOUD,
     CONF_ENABLE_LOG_TAIL,
     DOORBELL_PULSE_SECONDS,
     CONF_ENABLE_MQTT_BRIDGE,
@@ -44,6 +48,7 @@ from .const import (
     CONF_MQTT_BASE_TOPIC,
     CONF_OUTDOOR_ADDRESS,
     CONF_POLL_INTERVAL_MS,
+    DEFAULT_ENABLE_CLOUD,
     DEFAULT_ENABLE_LOG_TAIL,
     DEFAULT_ENABLE_MQTT_BRIDGE,
     DEFAULT_ENABLE_MQTT_DISCOVERY,
@@ -95,6 +100,7 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Bg-tasks
         self._poll_task: asyncio.Task | None = None
         self._tail_task: asyncio.Task | None = None
+        self._sip_task: asyncio.Task | None = None
         # Auto-clear ticker — runs independently of the poll loop so doorbell
         # / live-view pulses still expire when the GW is offline and the poll
         # loop is in a long exponential backoff. Initialized here so the
@@ -119,6 +125,13 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.call_active = False
         self.outdoor_station_ringing = False
         self.cloud_online = False  # from last `mqtt connect ok` event
+        # Cloud SIP REGISTER session health — drives binary_sensor.cloud_sip_connected
+        self.cloud_sip_connected = False
+        # Last source that fired a ring event ("sip"|"log"|"poll"|None).
+        # Updated each time `_fire(EVENT_DOORBELL_RINGING, …)` actually fires
+        # (not when it dedups), so the diagnostic sensor shows whichever
+        # path won the race.
+        self.last_ring_source: str | None = None
 
         # Last-seen scalars (drive sensor.last_*).
         # Stored as wall-clock datetimes — sensors return them directly, so the
@@ -170,6 +183,29 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 name=f"villa_gw_tail_{self.client.host}",
             )
 
+        # Optional Cloud SIP listener — registers as a 2nd App-User at
+        # `de.ilifestyle-cloud.com:5061` and receives forked SIP-INVITEs on
+        # doorbell rings. Silent-mode only: never sends a SIP response to
+        # INVITE (verified 2026-05-23 — any active response makes Cloud
+        # treat our branch as the responsible endpoint, breaking the
+        # parallel iPhone-fork).
+        if opts.get(CONF_ENABLE_CLOUD, DEFAULT_ENABLE_CLOUD):
+            sip_id = opts.get(CONF_CACHED_SIP_ID)
+            sip_pw = opts.get(CONF_CACHED_SIP_PASSWORD)
+            sip_server = opts.get(CONF_CACHED_SIP_SERVER)
+            if sip_id and sip_pw and sip_server:
+                self._sip_task = self.hass.async_create_background_task(
+                    self._sip_loop(
+                        server=sip_server, user=sip_id, password=sip_pw,
+                    ),
+                    name=f"villa_gw_sip_{self.client.host}",
+                )
+            else:
+                _LOGGER.warning(
+                    "Cloud enabled but cached SIP creds missing — "
+                    "reconfigure the integration to fetch them",
+                )
+
         # Optional MQTT-bridge
         if opts.get(CONF_ENABLE_MQTT_BRIDGE, DEFAULT_ENABLE_MQTT_BRIDGE):
             # Lazy import — only need this code path if user opts in
@@ -194,7 +230,7 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._auto_clear_unsub is not None:
             self._auto_clear_unsub()
             self._auto_clear_unsub = None
-        for task in (self._poll_task, self._tail_task):
+        for task in (self._poll_task, self._tail_task, self._sip_task):
             if task and not task.done():
                 task.cancel()
                 try:
@@ -203,6 +239,7 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     pass
         self._poll_task = None
         self._tail_task = None
+        self._sip_task = None
         if self.mqtt_bridge:
             await self.mqtt_bridge.async_stop()
             self.mqtt_bridge = None
@@ -528,7 +565,91 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if now - last < DEDUP_WINDOW:
             return  # already fired recently (from the other source)
         self._last_event_at[event_type] = now
+        # Track last fired ring source for the diagnostic sensor — only the
+        # winning path updates the field; suppressed duplicates don't.
+        source_changed = False
+        if event_type == EVENT_DOORBELL_RINGING:
+            source = payload.get("source")
+            if isinstance(source, str) and source != self.last_ring_source:
+                self.last_ring_source = source
+                source_changed = True
         self.hass.bus.async_fire(event_type, payload)
+        # Push a coordinator update so the `last_ring_source` sensor refreshes
+        # immediately instead of waiting for the next poll-tick.
+        if source_changed:
+            self.async_set_updated_data(self.data or {})
+
+    # ─────────────────────────────────────────── Cloud SIP listener
+
+    async def _sip_loop(
+        self, *, server: str, user: str, password: str,
+    ) -> None:
+        """Maintain a TLS SIP-REGISTER session with the iLifestyle Cloud.
+
+        Reconnects with capped exponential backoff on any disconnect or
+        REGISTER failure. While registered, INVITE-on-the-wire fires
+        `EVENT_DOORBELL_RINGING` via the same `_fire()` dedup as poll/log.
+        """
+        # Lazy import so test environments without the sip_client module
+        # don't hard-fail at coordinator-import time.
+        from .sip_client import SipClient, TlsSipTransport  # noqa: PLC0415
+
+        bo = Backoff(
+            initial=BACKOFF_INITIAL_S, factor=BACKOFF_FACTOR,
+            cap=BACKOFF_MAX_S, jitter=BACKOFF_JITTER,
+        )
+        while True:
+            transport: TlsSipTransport | None = None
+            try:
+                transport = await TlsSipTransport.connect(server)
+                client = SipClient(
+                    server=server, user=user, password=password,
+                    transport=transport, on_invite=self._on_sip_invite,
+                )
+                ok = await client.register_once()
+                self.cloud_sip_connected = ok
+                self.async_set_updated_data(self.data or {})
+                if not ok:
+                    raise RuntimeError("SIP REGISTER rejected")
+                bo.reset()
+                _LOGGER.info("Villa GW SIP-listener registered at %s", server)
+                await client.run()  # loops forever until exception
+            except asyncio.CancelledError:
+                self.cloud_sip_connected = False
+                raise
+            except Exception as err:  # noqa: BLE001
+                self.cloud_sip_connected = False
+                self.async_set_updated_data(self.data or {})
+                delay = bo.next_delay()
+                _LOGGER.warning(
+                    "SIP listener disconnected (%s) — reconnecting in %.0fs",
+                    err, delay,
+                )
+                await asyncio.sleep(delay)
+            finally:
+                if transport is not None:
+                    try:
+                        await transport.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+
+    @callback
+    def _on_sip_invite(self, info: dict[str, str]) -> None:
+        """Callback from SipClient on each incoming INVITE.
+
+        Fires the canonical ring event with `source="sip"`. The `_fire()`
+        dedup handles the case where poll/log already saw the same ring
+        within DEDUP_WINDOW.
+        """
+        self._fire(
+            EVENT_DOORBELL_RINGING,
+            {
+                "source":   "sip",
+                "call_id":  info.get("call_id", ""),
+                "from_sip": info.get("from_sip", ""),
+                "to_sip":   info.get("to_sip", ""),
+            },
+        )
 
     # ─────────────────────────────────────────── slow sensor refresh
 
