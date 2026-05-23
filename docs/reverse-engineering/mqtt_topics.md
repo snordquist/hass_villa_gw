@@ -2,7 +2,16 @@
 
 > Vollständiges Inventar aller MQTT-Topics + Payload-Schemas zwischen **Villa GW V3.0 (AVL20P)** und der iLifestyle-Cloud (`de.ilifestyle-cloud.com`).
 >
-> **Stand:** 2026-05-22
+> **Stand:** 2026-05-22 (Update nach 15-min-Live-Watcher mit globalem `#`-Sniff + 12× reproduziertem Klingelevent)
+
+## Update 2026-05-22 — wichtige Korrekturen
+
+1. **Klingel-Push NICHT via MQTT**: Doorbell-Ring (`call_btn_trigger`) erscheint **nicht** als MQTT-Message für die eigene MAC. Die App-Notification läuft über **SIP INVITE** (existierende `pjsua → de.ilifestyle-cloud.com:5061 TLS` Connection) → Cloud routet → **FCM (Android) / APNS (iOS) Push** zur App. Bestätigt durch netstat-Snapshot des GW: keine separate Push-Server-Connection, nur SIP+MQTT+RTMP.
+2. **Action `OPEN DOOR` ist aktiv** — entgegen früherer Annahme „im Binary kompiliert aber nicht in Verwendung" → live in 3 fremden GW-Sessions beobachtet.
+3. **`ctrl="N"`** ist ein weiterer ctrl-Wert (vermutlich Next-Camera-Switch).
+4. **EMQ X hat NULL ACL** — globaler `#`-Subscribe liefert Türöffnungen + Monitor-Sessions fremder Haushalte. Privacy-relevant für Disclosure.
+5. **ClientID-Format**: `<alias>|<MAC>` (alias VOR pipe). MQTTv5, `clean_start=False`, `SessionExpiryInterval=60`. Username = MAC, Password = JWT von `/api/account` (token-Feld).
+
 > **Quellen:**
 > - Binary: `villa_gw_dump/customer/app/sbin/avlink` (Mosquitto-Client, `mqtt-client.c` + `avlink-server.c`)
 > - Lua-Sync: `villa_gw_dump/customer/lua/{autoSync,cloudDevice,updateCallList,updateCloudEnable}.lua`
@@ -90,25 +99,34 @@ topic=AA:BB:CC:DD:EE:FF
 
 | Feld | Typ | Werte | Bedeutung |
 |---|---|---|---|
-| `action` | string | `"monitor"` | Befehls-Verb |
-| `from` | string (32-hex) | z.B. `23e2f5277dd64378bcc2b45d8a76386b` | Sender-Session, wird als Antwort-Topic verwendet |
-| `tag` | string (ms-Timestamp) | z.B. `"1779368751290"` | Request-Korrelations-ID — wird in **jeder** Response 1:1 echo'd |
-| `ctrl` | string | `"1"` = start monitor / unlock; `"F"` = finish / stop; `"0"` = idle/end | Steuer-Sub-Verb |
+| `action` | string | `"monitor"` \| `"OPEN DOOR"` | Befehls-Verb. `"OPEN DOOR"` (Großschreibung!) ist eine separate Action für Türöffnung **innerhalb** einer aktiven Monitor-Session — live in 2026-05-22-Sniff von 3 fremden GWs bestätigt. Geht durch denselben `on_receive_monitor`-Handler. |
+| `from` | string (16-hex \| 32-hex) | z.B. `23e2f5277dd64378bcc2b45d8a76386b` ODER `0c5f70c25cb6eee3` | Sender-Session, wird als Antwort-Topic verwendet. **Beide Längen live beobachtet** — vermutlich verschiedene App-Versionen / Builds. |
+| `tag` | string (ms-Timestamp) | z.B. `"1779368751290"` | Request-Korrelations-ID — wird in **jeder** Response 1:1 echo'd. **NICHT** in `OPEN DOOR`-Payload — die hat nur `action`+`from`. |
+| `ctrl` | string | `"1"` = start; `"0"` = idle/init; `"F"` = finish/hangup; **`"N"` = Next (Cam-Switch in laufender Session)** | Steuer-Sub-Verb. `"N"` 2026-05-22 live entdeckt. |
 | `key_index` | int | `1`, `2`, … | Welche Klingeltaste / welches Türrelais |
 | `duration` | int (Sekunden) | typ. `60` | Wie lange Monitor/Türöffner aktiv |
+
+#### Beispiel: `OPEN DOOR` Action (live observed 2026-05-22)
+
+```json
+topic = <GW_MAC>
+{"action": "OPEN DOOR", "from": "<App_UUID>"}
+```
+
+Wird typischerweise mitten in einer aktiven Monitor-Session gesendet (App-User klickt Tür-öffnen-Button während Live-Stream läuft). **Kein `tag` nötig** — die Response geht trotzdem an `from` mit dem `tag` des aktuellen Monitor-Cycles.
 
 ### Im Binary deklarierte (aber im aktuellen Build NICHT aktiv) Actions
 
 `avlink-server.c`-Strings:
 
-| Action | Inbound-Schema | Handler-Funktion |
-|---|---|---|
-| `CTRL` | `{"action":"CTRL","event":{"relay":"<id>"}}` | `on_receive_ctrl_relay_state` — schaltet Relay `<id>` für `relay.duration_a`/`relay.duration_b` Sekunden |
-| `STATE` | (Query, kein Body) | `on_receive_query_relay_state` — antwortet mit `STATE`-Publish |
-| `UPGRADE` | Trigger-Payload (Format nicht im Binary sichtbar) | Führt `AT+B UPGRADE %d` aus → startet `lua /customer/share/firmware_upgrade.lua` |
-| `UPDATE` | (von Cloud → GW erwartet, Format nicht beobachtet) | `on_receive_device_update` |
-
-Diese Actions sind im Binary kompiliert; in 9 h Live-Logs (2026-05-21) keine einzige Inbound-Message mit diesen Verben gesehen. Vermutlich sendet die aktuelle Cloud-Version nur noch `monitor` und verwendet andere Actions gar nicht mehr.
+| Action | Inbound-Schema | Handler-Funktion | Status 2026-05-22 |
+|---|---|---|---|
+| `OPEN DOOR` | `{"action":"OPEN DOOR","from":"<uuid>"}` | `on_receive_monitor` (open-door-shortcut) | **✅ AKTIV** — live in 3 fremden GW-Sessions beobachtet (15min globaler `#`-Sniff) |
+| `CTRL` | `{"action":"CTRL","event":{"relay":"<id>"}}` | `on_receive_ctrl_relay_state` — schaltet Relay `<id>` für `relay.duration_a`/`relay.duration_b` Sekunden | ❌ Inbound nicht beobachtet (1× CTRL-OUT-Sync von fremder UID gesehen — `{"timestamp":..,"action":"CTRL","event":{"switch":"off"}}`) |
+| `STATE` | (Query, kein Body) | `on_receive_query_relay_state` — antwortet mit `STATE`-Publish | ❌ nicht beobachtet |
+| `UPGRADE` | Trigger-Payload (Format nicht im Binary sichtbar) | Führt `AT+B UPGRADE %d` aus → startet `lua /customer/share/firmware_upgrade.lua` | ❌ nicht beobachtet |
+| `UPDATE` | (von Cloud → GW erwartet, Format nicht beobachtet) | `on_receive_device_update` | ❌ nicht beobachtet |
+| `SYNC` | `{"action":"SYNC"}` auf `<MAC>/ctrl` | (Heartbeat — vermutl. von Companion-Apps oder GW selbst) | **✅ AKTIV** — Heartbeats von ~Hundert fremden GWs alle paar Sekunden beobachtet |
 
 ### Dispatch-Logik
 

@@ -25,9 +25,16 @@ from .coordinator import VillaGwCoordinator, get_coordinator
 
 @dataclass(frozen=True, kw_only=True)
 class VillaGwButtonDescription(ButtonEntityDescription):
-    """Description with bound async action."""
+    """Description with bound async action.
+
+    `post_action`: optional sync callback run on the coordinator AFTER the
+    bus command succeeds — used by the live-view buttons to flip the
+    `live_view_active` mirror, since the HA-direct `AT+B UART monitor`
+    bypasses the avlink state machine and is invisible to the poll path.
+    """
 
     action: Callable[[VillaGwClient, dict[str, Any]], Awaitable[None]]
+    post_action: Callable[[VillaGwCoordinator], None] | None = None
 
 
 BUTTONS: tuple[VillaGwButtonDescription, ...] = (
@@ -39,6 +46,7 @@ BUTTONS: tuple[VillaGwButtonDescription, ...] = (
             address=o.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS),
             duration=o.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION),
         ),
+        post_action=lambda coord: coord.mark_live_view_started("ha_local"),
     ),
     VillaGwButtonDescription(
         key="stop_live",
@@ -47,6 +55,7 @@ BUTTONS: tuple[VillaGwButtonDescription, ...] = (
         action=lambda c, o: c.stop_live_view(
             address=o.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS),
         ),
+        post_action=lambda coord: coord.mark_live_view_ended("ha_local"),
     ),
     VillaGwButtonDescription(
         key="hook",
@@ -115,3 +124,5 @@ class VillaGwButton(ButtonEntity):
     async def async_press(self) -> None:
         opts = {**self.entry.data, **self.entry.options}
         await self.entity_description.action(self.coordinator.client, opts)
+        if self.entity_description.post_action is not None:
+            self.entity_description.post_action(self.coordinator)

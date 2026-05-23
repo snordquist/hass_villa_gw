@@ -383,6 +383,35 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if was_live:
                 self._fire(EVENT_LIVE_VIEW_ENDED, {"state": new_state})
 
+    # ─────────────────────────────────────────── client-side live-view marker
+
+    @callback
+    def mark_live_view_started(self, source: str) -> None:
+        """Flip live_view_active on without waiting for log/state evidence.
+
+        The HA-direct `AT+B UART monitor` path on uart2d:10087 bypasses the
+        avlink state machine — `AT+B APPLICATION` stays in `{state:1, call:[0]}`
+        for the duration of a HA-initiated live view, so the poll-path can
+        never observe it. We commit the flag locally as soon as the command
+        is sent; `_tick_auto_clear` cleans it up after the configured
+        duration + 30s grace.
+        """
+        self.live_view_active = True
+        self.live_view_started_at = self.hass.loop.time()
+        self.last_app_user = source
+        self._fire(EVENT_LIVE_VIEW_STARTED, {"source": source})
+        self.async_set_updated_data(self.data or {})
+
+    @callback
+    def mark_live_view_ended(self, source: str) -> None:
+        """Clear live_view_active on explicit HA-side stop."""
+        was_active = self.live_view_active
+        self.live_view_active = False
+        self.live_view_started_at = None
+        if was_active:
+            self._fire(EVENT_LIVE_VIEW_ENDED, {"source": source})
+        self.async_set_updated_data(self.data or {})
+
     # ─────────────────────────────────────────── log-tail callback (fast path)
 
     # Map parsed log-event type → HA bus event name
@@ -394,7 +423,11 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         "live_view_started":  EVENT_LIVE_VIEW_STARTED,
         "live_view_ended":    EVENT_LIVE_VIEW_ENDED,
         "live_view_state":    None,   # transitional — no HA event
-        "monitor_response":   None,   # we infer live_view_* from state instead
+        # `monitor_response=ok` is a backup signal for the log-tail path —
+        # when the app-side `AT+B UART monitor` succeeds we treat it as a
+        # live_view_started, since the polling path (AT+B APPLICATION) cannot
+        # see HA/app-initiated monitors that bypass the avlink state machine.
+        "monitor_response":   EVENT_LIVE_VIEW_STARTED,
         "state_timeout":      EVENT_STATE_TIMEOUT,
         "door_unlocked":      EVENT_DOOR_UNLOCKED,
         "cloud_mqtt_in":      EVENT_CLOUD_MQTT_IN,
@@ -447,6 +480,13 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif etype == "live_view_ended":
             self.live_view_active = False
             self.live_view_started_at = None
+        elif etype == "monitor_response":
+            # Backup channel: a successful `AT+B UART monitor` ACK (regardless
+            # of initiator). Only mirror state on `response=ok`; failures
+            # leave the flag where it was.
+            if event.get("response") == "ok":
+                self.live_view_active = True
+                self.live_view_started_at = loop_now
         elif etype == "ringback":
             self.outdoor_station_ringing = event.get("state", 0) == 1
         elif etype == "door_unlocked":
@@ -463,8 +503,13 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Push entity updates
         self.async_set_updated_data(self.data or {})
 
-        # Fire HA bus event (with dedup against polling-loop)
+        # Fire HA bus event (with dedup against polling-loop).
+        # `monitor_response` is mapped to live_view_started only when the
+        # ACK is positive — gate that here rather than encoding it in the map.
         ha_event = self._LOG_EVENT_MAP.get(etype)
+        if ha_event:
+            if etype == "monitor_response" and event.get("response") != "ok":
+                ha_event = None
         if ha_event:
             self._fire(ha_event, event)
 
