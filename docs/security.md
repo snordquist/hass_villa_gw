@@ -1,11 +1,8 @@
 # Security — Disclosure Status
 
 **Status:** Coordinated disclosure in progress with HHG GmbH (manufacturer).
-
-The previous version of this file contained detailed reproduction steps for
-multiple severe security defaults in the Villa GW firmware (4.1.x). Out of
-respect for coordinated-disclosure practice these details have been temporarily
-withdrawn.
+Detailed findings will be published after vendor remediation or after the
+90-day coordinated-disclosure window has elapsed.
 
 ---
 
@@ -13,15 +10,12 @@ withdrawn.
 
 | Date (UTC) | Event |
 |---|---|
-| 2026-05-22 | Findings re-verified against live device (firmware 4.1.12) |
-| 2026-05-22 | Public detail withdrawn from this repository (commit `29a1fd8`) |
 | 2026-05-24 | Detailed disclosure sent to HHG GmbH (`info@hhg-elektro.de`) |
 | 2026-08-22 | Planned public disclosure (90 days after vendor notification), unless an agreement with HHG is reached |
 
 ## Scope of the findings (summary only)
 
-Without disclosing reproduction steps, the issue classes affecting **firmware
-4.x as shipped** include:
+The issue classes affecting **firmware 4.x as shipped** include:
 
 - Unauthenticated remote shell access on the LAN
 - Default credentials documented by the manufacturer without instructions to

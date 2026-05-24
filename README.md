@@ -6,20 +6,11 @@
 
 Home Assistant integration for **HHG/EGB Villa GW** intercom gateways (model AVL20P, internal name ACP-03). Bypasses the iLifestyle cloud completely — runs fully local, sub-100ms response, no MQTT credentials needed.
 
-> ## ⚠️ Coordinated security disclosure in progress
+> ## ⚠️ Deployment advice
 >
-> Several severe security defaults in the Villa GW firmware (4.x) were
-> identified during the reverse-engineering work that made this integration
-> possible. The vendor (**HHG GmbH**) was notified on **2026-05-24**. Detailed
-> reproduction steps have been temporarily withdrawn from this repository.
->
-> - Disclosure status & summary: [`docs/security.md`](docs/security.md)
-> - Planned full public disclosure: **2026-08-22** (90 days), unless an
->   agreement with the vendor is reached.
-> - **Deployment advice:** treat the Villa GW as an untrusted IoT device.
->   Put it on a dedicated VLAN, firewall it from the rest of your LAN, change
->   any default credentials, and read the disclosure summary before exposing
->   the device to a shared network.
+> Treat the Villa GW as an untrusted IoT device. Put it on a dedicated
+> VLAN, firewall it from the rest of your LAN, and change any default
+> credentials before exposing the device to a shared network.
 
 ## Why this exists
 
