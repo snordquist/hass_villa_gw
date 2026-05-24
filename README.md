@@ -10,11 +10,11 @@ Home Assistant integration for **HHG/EGB Villa GW** intercom gateways (model AVL
 >
 > Several severe security defaults in the Villa GW firmware (4.x) were
 > identified during the reverse-engineering work that made this integration
-> possible. The vendor (**HHG GmbH**) was notified on **2026-05-22**. Detailed
+> possible. The vendor (**HHG GmbH**) was notified on **2026-05-24**. Detailed
 > reproduction steps have been temporarily withdrawn from this repository.
 >
 > - Disclosure status & summary: [`docs/security.md`](docs/security.md)
-> - Planned full public disclosure: **2026-08-20** (90 days), unless an
+> - Planned full public disclosure: **2026-08-22** (90 days), unless an
 >   agreement with the vendor is reached.
 > - **Deployment advice:** treat the Villa GW as an untrusted IoT device.
 >   Put it on a dedicated VLAN, firewall it from the rest of your LAN, change

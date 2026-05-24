@@ -14,9 +14,9 @@ withdrawn.
 | Date (UTC) | Event |
 |---|---|
 | 2026-05-22 | Findings re-verified against live device (firmware 4.1.12) |
-| 2026-05-22 | Detailed disclosure sent to HHG GmbH (`info@hhg-elektro.de`) |
-| 2026-05-22 | Public detail withdrawn from this repository |
-| 2026-08-20 | Planned public disclosure (90 days after vendor notification), unless an agreement with HHG is reached |
+| 2026-05-22 | Public detail withdrawn from this repository (commit `29a1fd8`) |
+| 2026-05-24 | Detailed disclosure sent to HHG GmbH (`info@hhg-elektro.de`) |
+| 2026-08-22 | Planned public disclosure (90 days after vendor notification), unless an agreement with HHG is reached |
 
 ## Scope of the findings (summary only)
 

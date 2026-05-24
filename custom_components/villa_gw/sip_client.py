@@ -338,6 +338,14 @@ class SipClient:
         if first_line.startswith("INVITE "):
             info = extract_invite_info(msg)
             cid = info["call_id"]
+            # RFC 3261 requires a Call-ID; an INVITE without one is
+            # malformed. Without this guard, every header-less INVITE
+            # would collide on the empty-string key and silently drop
+            # subsequent rings. Log + ignore so a real protocol-level
+            # bug stays visible.
+            if not cid:
+                _LOGGER.warning("SIP INVITE without Call-ID — ignoring")
+                return
             now_mono = self._now_fn()
             self._evict_stale_invites(now_mono)
             # SIP INVITE retransmits (same Call-ID, e.g. on a brief TCP

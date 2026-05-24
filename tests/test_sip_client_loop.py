@@ -299,6 +299,34 @@ async def test_run_raises_when_periodic_reregister_fails() -> None:
 
 
 @pytest.mark.asyncio
+async def test_invite_without_call_id_is_ignored() -> None:
+    """A malformed INVITE missing the Call-ID header must NOT collide
+    on the empty-string dict key — without the guard, the second
+    malformed INVITE would be silently dropped by the retransmit
+    suppressor instead of firing on_invite for distinct calls.
+    """
+    bad_invite = (
+        "INVITE sip:alice@srv SIP/2.0\r\n"
+        "Via: SIP/2.0/TLS 192.0.2.99:5061;branch=z9hG4bK-bad\r\n"
+        "From: <sip:doorbell@srv>;tag=db\r\n"
+        "To: <sip:alice@srv>\r\n"
+        "CSeq: 1 INVITE\r\n"
+        "Content-Length: 0\r\n\r\n"
+    ).encode()
+    transport = FakeTransport(script=[bad_invite])
+    received: list[dict[str, str]] = []
+    client = sip.SipClient(
+        server="srv", user="alice", password="secret",
+        transport=transport, on_invite=received.append,
+    )
+    await client.process_one_message()
+    # Callback NOT fired, table stays empty, no SIP response sent
+    assert received == []
+    assert client._active_invites == {}  # noqa: SLF001
+    assert transport.sent == []
+
+
+@pytest.mark.asyncio
 async def test_invite_retransmit_does_not_refire_or_replace_tag() -> None:
     """If Cloud retransmits the same INVITE (same Call-ID), we must NOT
     fire `on_invite` again and must NOT replace the dialog's local-tag —
