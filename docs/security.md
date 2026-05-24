@@ -1,17 +1,10 @@
 # Security — Disclosure Status
 
-**Status:** Coordinated disclosure in progress with HHG GmbH (manufacturer).
-Detailed findings will be published after vendor remediation or after the
+**Status:** Coordinated disclosure planned with HHG GmbH (manufacturer).
+Detailed findings will be published after vendor remediation or after a
 90-day coordinated-disclosure window has elapsed.
 
 ---
-
-## Timeline
-
-| Date (UTC) | Event |
-|---|---|
-| 2026-05-24 | Detailed disclosure sent to HHG GmbH (`info@hhg-elektro.de`) |
-| 2026-08-22 | Planned public disclosure (90 days after vendor notification), unless an agreement with HHG is reached |
 
 ## Scope of the findings (summary only)
 
@@ -48,5 +41,5 @@ Until the vendor addresses these issues:
 ## Contact
 
 If you are a security researcher with questions, please email the integration
-maintainer — do not file public GitHub issues with reproduction details before
-the disclosure window above has elapsed.
+maintainer — do not file public GitHub issues with reproduction details while
+coordinated disclosure is still in progress.
