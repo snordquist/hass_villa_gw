@@ -4,6 +4,16 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] — 2026-05-29
+
+### Added
+
+- **Raw Cloud-SIP INVITE logged at DEBUG** (`custom_components.villa_gw` →
+  debug). On each new forked ring-INVITE the full message incl. SDP offer is
+  logged, so the offered audio codec (PCMU/PCMA), SRTP (`a=crypto`) and media
+  addresses can be inspected for the planned audio-capture path. Silent mode
+  unchanged — nothing is sent, the iPhone fork is untouched.
+
 ## [0.1.3] — 2026-05-29
 
 ### Fixed

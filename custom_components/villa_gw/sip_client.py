@@ -374,6 +374,12 @@ class SipClient:
             self._active_invites[cid] = (
                 msg, f"hass-{secrets.token_hex(4)}", now_mono,
             )
+            # Full raw INVITE (incl. SDP offer) at DEBUG. Lets us inspect the
+            # offered audio codec (PCMU/PCMA), SRTP (a=crypto) and media
+            # c=/m= addresses for the planned audio-capture path — without
+            # sending anything (routing/iPhone-fork untouched). First INVITE
+            # only (retransmits already returned above).
+            _LOGGER.debug("Cloud SIP INVITE (raw):\n%s", msg)
             # Silent mode — do NOT send any SIP response. The Cloud will let
             # the parallel iPhone-fork take the call and our branch times
             # out cleanly in ~32s without affecting routing.
