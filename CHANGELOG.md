@@ -4,6 +4,29 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-05-29
+
+Clean, fully-restructured baseline. The experimental audio-capture probe is
+removed (investigation parked); the module restructure is kept.
+
+### Removed
+- **Experimental Early-Media 183 probe** + the diagnostic raw-INVITE DEBUG
+  logging + the *“Arm early-media probe”* button and all its wiring
+  (`is_probe_armed`/`on_probe_result`, coordinator arm/disarm state). The
+  Cloud SIP listener is back to a clean **silent observer** — every ring fires
+  `on_invite` and sends no SIP response, exactly as before the experiment.
+
+### Changed — internal restructure (behaviour-preserving, 68 tests green)
+- `api.py` split into transport mixins: `gw_base` (shared state + exceptions),
+  `gw_web`, `gw_avlink`, `gw_bus`, `gw_logtail` (`VillaGwClient` is a thin
+  composition; public API unchanged).
+- `coordinator.py` split into `coordinator_poll` / `coordinator_events` /
+  `coordinator_sip` mixins (orchestrator only; public attrs/methods unchanged).
+- The pluggable `InviteStrategy` seam (`SilentStrategy`) remains as the clean
+  foundation for any future SIP experiment.
+- No functional change to ring detection, `cloud_online` self-heal, the SIP
+  listener (silent + single REGISTER + re-REGISTER) or the doorbell pipeline.
+
 ## [0.2.0] — 2026-05-29
 
 ### Changed — internal restructure (behaviour-preserving, 66 tests green)
