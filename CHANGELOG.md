@@ -4,6 +4,32 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-05-30
+
+### Added
+- **`RingingStrategy` (opt-in experiment) + `enable_sip_ringing` option.**
+  The Cloud SIP listener can now reply **`100 Trying` + `180 Ringing`** to the
+  forked INVITE — behaving like a real, never-answered phone — instead of
+  staying fully silent. It still **never** sends `200` (never answers); the
+  `487` on CANCEL is emitted with the same To-tag for dialog consistency.
+
+  Motivation: with the previous *fully-silent* listener the iPhone could ring
+  but the **call could not be answered** — the GW logged
+  `AT_UART_MONITOR err` → `PJSUA_DISCONNECTED Request Terminated`. RFC 3261
+  §16.7 says a compliant forking proxy would *absorb* our 487, so the Cloud
+  must be a B2BUA whose fork-resolution mishandles a branch that never
+  established transaction state. A real UAS sends `100 Trying` immediately
+  (pjproject: `pjsip_inv_initial_answer(..., 100, ...)` before the app
+  callback), and multi-device ringing is a supported Cloud scenario — so a
+  correctly-ringing 2nd endpoint should coexist with the iPhone. This option
+  lets us verify that hypothesis.
+
+  **Default OFF** → `SilentStrategy` (unchanged production behaviour). Only
+  takes effect when the Cloud listener (`enable_cloud`) is also on.
+- `build_trying_response` / `build_ringing_response` wire helpers; the SIP
+  response builder now omits the To-tag for non-dialog-establishing responses
+  (`100 Trying`). `SipClient` accepts a pluggable `invite_strategy`.
+
 ## [0.3.0] — 2026-05-29
 
 Clean, fully-restructured baseline. The experimental audio-capture probe is

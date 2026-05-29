@@ -35,6 +35,7 @@ from .const import (
     CONF_CACHED_SIP_PASSWORD,
     CONF_CACHED_SIP_SERVER,
     CONF_ENABLE_CLOUD,
+    CONF_ENABLE_SIP_RINGING,
     CONF_ENABLE_LOG_TAIL,
     CONF_ENABLE_MQTT_BRIDGE,
     CONF_ENABLE_MQTT_DISCOVERY,
@@ -43,6 +44,7 @@ from .const import (
     CONF_OUTDOOR_ADDRESS,
     CONF_POLL_INTERVAL_MS,
     DEFAULT_ENABLE_CLOUD,
+    DEFAULT_ENABLE_SIP_RINGING,
     DEFAULT_ENABLE_LOG_TAIL,
     DEFAULT_ENABLE_MQTT_BRIDGE,
     DEFAULT_ENABLE_MQTT_DISCOVERY,
@@ -192,6 +194,9 @@ class VillaGwCoordinator(
                 self._sip_task = self.hass.async_create_background_task(
                     self._sip_loop(
                         server=sip_server, user=sip_id, password=sip_pw,
+                        use_ringing=opts.get(
+                            CONF_ENABLE_SIP_RINGING, DEFAULT_ENABLE_SIP_RINGING
+                        ),
                     ),
                     name=f"villa_gw_sip_{self.client.host}",
                 )

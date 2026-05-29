@@ -70,3 +70,31 @@ async def test_silent_strategy_sends_nothing() -> None:
     client = _FakeClient()
     await strat.SilentStrategy().respond(client, _INVITE, "hass-tag")
     assert client.transport.sent == []
+
+
+@pytest.mark.asyncio
+async def test_ringing_strategy_sends_100_then_180() -> None:
+    client = _FakeClient()
+    await strat.RingingStrategy().respond(client, _INVITE, "hass-tag")
+    sent = [b.decode() for b in client.transport.sent]
+    assert len(sent) == 2
+    assert sent[0].startswith("SIP/2.0 100 Trying")
+    assert sent[1].startswith("SIP/2.0 180 Ringing")
+
+    # 100 Trying is NOT dialog-establishing → MUST NOT carry a To-tag.
+    trying_to = next(
+        ln for ln in sent[0].split("\r\n") if ln.lower().startswith("to:")
+    )
+    assert ";tag=" not in trying_to
+
+    # 180 Ringing establishes the early dialog → carries the To-tag, and it
+    # MUST be the same local_tag the later 487-on-CANCEL reuses.
+    ringing_to = next(
+        ln for ln in sent[1].split("\r\n") if ln.lower().startswith("to:")
+    )
+    assert ";tag=hass-tag" in ringing_to
+
+    # Both responses echo the request's Call-ID / CSeq (transaction match).
+    for resp in sent:
+        assert "Call-ID: cid-1" in resp
+        assert "CSeq: 102 INVITE" in resp

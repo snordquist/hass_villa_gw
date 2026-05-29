@@ -30,6 +30,7 @@ from .const import (
     CONF_CLOUD_EMAIL,
     CONF_CLOUD_PASSWORD,
     CONF_ENABLE_CLOUD,
+    CONF_ENABLE_SIP_RINGING,
     CONF_ENABLE_LOG_TAIL,
     CONF_ENABLE_MQTT_BRIDGE,
     CONF_ENABLE_MQTT_DISCOVERY,
@@ -41,6 +42,7 @@ from .const import (
     CONF_WEB_PASSWORD,
     CONF_WEB_USERNAME,
     DEFAULT_ENABLE_CLOUD,
+    DEFAULT_ENABLE_SIP_RINGING,
     DEFAULT_ENABLE_LOG_TAIL,
     DEFAULT_ENABLE_MQTT_BRIDGE,
     DEFAULT_ENABLE_MQTT_DISCOVERY,
@@ -74,6 +76,9 @@ STEP_USER_SCHEMA = vol.Schema(
         vol.Required(CONF_ENABLE_MQTT_DISCOVERY, default=DEFAULT_ENABLE_MQTT_DISCOVERY): bool,
         vol.Required(CONF_MQTT_BASE_TOPIC, default=DEFAULT_MQTT_BASE_TOPIC): str,
         vol.Required(CONF_ENABLE_CLOUD, default=DEFAULT_ENABLE_CLOUD): bool,
+        vol.Required(
+            CONF_ENABLE_SIP_RINGING, default=DEFAULT_ENABLE_SIP_RINGING
+        ): bool,
     }
 )
 
@@ -291,6 +296,12 @@ class VillaGwOptionsFlow(OptionsFlow):
                     vol.Required(
                         CONF_ENABLE_CLOUD,
                         default=current.get(CONF_ENABLE_CLOUD, DEFAULT_ENABLE_CLOUD),
+                    ): bool,
+                    vol.Required(
+                        CONF_ENABLE_SIP_RINGING,
+                        default=current.get(
+                            CONF_ENABLE_SIP_RINGING, DEFAULT_ENABLE_SIP_RINGING
+                        ),
                     ): bool,
                 }
             ),

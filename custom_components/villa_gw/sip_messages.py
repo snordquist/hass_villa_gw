@@ -112,14 +112,14 @@ def build_register(
 
 
 def _copy_response_headers(
-    req_msg: str, status_line: str, local_tag: str,
+    req_msg: str, status_line: str, local_tag: str | None,
 ) -> bytes:
     """Build a SIP response by reusing Via/From/To/Call-ID/CSeq from request.
 
-    Appends `;tag=<local_tag>` to the To-header only if not already
-    present (RFC 3261 §8.2.6.2 — dialog-establishing responses MUST
-    carry a To-tag, but if the request side already produced one for
-    this dialog we keep it).
+    Appends `;tag=<local_tag>` to the To-header only if `local_tag` is given
+    and not already present (RFC 3261 §8.2.6.2 — dialog-establishing responses
+    MUST carry a To-tag, but a bare `100 Trying` is NOT dialog-establishing and
+    MUST NOT, so callers pass `local_tag=None` for it).
     """
     lines = req_msg.split("\r\n")
     via = next((ln for ln in lines if ln.lower().startswith("via:")), "")
@@ -127,7 +127,7 @@ def _copy_response_headers(
     to = next((ln for ln in lines if ln.lower().startswith("to:")), "")
     cid = next((ln for ln in lines if ln.lower().startswith("call-id:")), "")
     cseq = next((ln for ln in lines if ln.lower().startswith("cseq:")), "")
-    if ";tag=" not in to:
+    if local_tag is not None and ";tag=" not in to:
         to = to.rstrip() + f";tag={local_tag}"
     resp = (
         f"{status_line}\r\n"
@@ -150,6 +150,25 @@ def build_terminated_response(req_msg: str, *, local_tag: str) -> bytes:
     return _copy_response_headers(
         req_msg, "SIP/2.0 487 Request Terminated", local_tag,
     )
+
+
+def build_trying_response(req_msg: str) -> bytes:
+    """100 Trying — provisional, NOT dialog-establishing, so NO To-tag.
+
+    A real UAS (pjproject sends it automatically before the app even sees the
+    INVITE) emits 100 immediately so the upstream has live transaction state on
+    this branch. Our previously fully-silent listener skipped it entirely.
+    """
+    return _copy_response_headers(req_msg, "SIP/2.0 100 Trying", None)
+
+
+def build_ringing_response(req_msg: str, *, local_tag: str) -> bytes:
+    """180 Ringing — establishes the early dialog, carries the To-tag.
+
+    The matching 487 sent on a later CANCEL MUST reuse the *same* `local_tag`
+    so the To-tag is consistent across the dialog.
+    """
+    return _copy_response_headers(req_msg, "SIP/2.0 180 Ringing", local_tag)
 
 
 def extract_invite_info(invite_msg: str) -> dict[str, str]:

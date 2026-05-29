@@ -15,7 +15,8 @@
           "enable_mqtt_bridge": "Enable MQTT bridge (publish events to HA Mosquitto)",
           "enable_mqtt_discovery": "Publish MQTT-Discovery configs (auto-creates entities — disable when using the custom-component)",
           "mqtt_base_topic": "MQTT base topic",
-          "enable_cloud": "Enable iLifestyle Cloud SIP listener (recommended — needed for instant ring detection)"
+          "enable_cloud": "Enable iLifestyle Cloud SIP listener (recommended — needed for instant ring detection)",
+          "enable_sip_ringing": "EXPERIMENTAL: reply 100 Trying + 180 Ringing on the Cloud INVITE (behave like a real phone) instead of staying silent — only takes effect with the Cloud listener on"
         }
       },
       "cloud": {
@@ -51,7 +52,8 @@
           "enable_mqtt_bridge": "Enable MQTT bridge",
           "enable_mqtt_discovery": "Publish MQTT-Discovery configs",
           "mqtt_base_topic": "MQTT base topic",
-          "enable_cloud": "Enable iLifestyle Cloud SIP listener"
+          "enable_cloud": "Enable iLifestyle Cloud SIP listener",
+          "enable_sip_ringing": "EXPERIMENTAL: reply 100 Trying + 180 Ringing on the Cloud INVITE (behave like a real phone) — only with the Cloud listener on"
         }
       },
       "cloud": {

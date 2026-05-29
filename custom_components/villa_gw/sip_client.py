@@ -74,6 +74,7 @@ class SipClient:
         on_invite: OnInvite | None = None,
         on_registered: Callable[[], None] | None = None,
         active_invite_ttl_s: float = 60.0,
+        invite_strategy: object | None = None,
     ) -> None:
         self._server = server
         self._user = user
@@ -82,8 +83,8 @@ class SipClient:
         self._on_invite = on_invite
         # INVITE response is delegated to a pluggable strategy (ring-detection
         # via on_invite fires independently). Silent by default — see
-        # sip_strategies.py.
-        self._silent_strategy: object = SilentStrategy()
+        # sip_strategies.py. RingingStrategy (100+180) is the opt-in experiment.
+        self._invite_strategy: object = invite_strategy or SilentStrategy()
         # Fired after every successful (re-)REGISTER inside run(). Lets the
         # coordinator flip `cloud_sip_connected` True and reset its backoff
         # only on a genuine, sustained registration — not optimistically.
@@ -233,8 +234,9 @@ class SipClient:
                 if asyncio.iscoroutine(res):
                     await res
             # The SIP response is the strategy's job: SilentStrategy (default,
-            # lets the iPhone-fork own the call).
-            await self._silent_strategy.respond(self, msg, local_tag)
+            # lets the iPhone-fork own the call) or RingingStrategy (opt-in,
+            # 100 Trying + 180 Ringing like a real phone).
+            await self._invite_strategy.respond(self, msg, local_tag)
             return
         if first_line.startswith("CANCEL "):
             h = parse_headers(msg)

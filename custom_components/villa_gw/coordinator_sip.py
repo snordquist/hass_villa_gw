@@ -31,16 +31,28 @@ class VillaGwSipMixin:
 
     async def _sip_loop(
         self, *, server: str, user: str, password: str,
+        use_ringing: bool = False,
     ) -> None:
         """Maintain a TLS SIP-REGISTER session with the iLifestyle Cloud.
 
         Reconnects with capped exponential backoff on any disconnect or
         REGISTER failure. While registered, INVITE-on-the-wire fires
         `EVENT_DOORBELL_RINGING` via the same `_fire()` dedup as poll/log.
+
+        `use_ringing` picks the INVITE strategy: False → SilentStrategy
+        (production default); True → RingingStrategy (100 Trying + 180 Ringing,
+        the opt-in experiment to test Cloud-fork coexistence with the iPhone).
         """
         # Lazy import so test environments without the sip_client module
         # don't hard-fail at coordinator-import time.
         from .sip_client import SipClient, TlsSipTransport  # noqa: PLC0415
+        from .sip_strategies import RingingStrategy, SilentStrategy  # noqa: PLC0415
+
+        strategy = RingingStrategy() if use_ringing else SilentStrategy()
+        _LOGGER.info(
+            "Villa GW SIP-listener INVITE strategy: %s",
+            "ringing (100+180)" if use_ringing else "silent",
+        )
 
         bo = Backoff(
             initial=BACKOFF_INITIAL_S, factor=BACKOFF_FACTOR,
@@ -71,6 +83,7 @@ class VillaGwSipMixin:
                     server=server, user=user, password=password,
                     transport=transport, on_invite=self._on_sip_invite,
                     on_registered=_on_registered,
+                    invite_strategy=strategy,
                 )
                 await client.run()  # registers → fires callback → loops until error
             except asyncio.CancelledError:

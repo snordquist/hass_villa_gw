@@ -21,6 +21,7 @@ CONF_MQTT_BASE_TOPIC = "mqtt_base_topic"
 # Cloud-side configuration — Phase 1 of integration extension
 # (see villa_gw/cloud_fcm/INTEGRATION_PLAN.md)
 CONF_ENABLE_CLOUD = "enable_cloud"
+CONF_ENABLE_SIP_RINGING = "enable_sip_ringing"  # experiment: 100+180 vs silent
 CONF_CLOUD_EMAIL = "cloud_email"
 CONF_CLOUD_PASSWORD = "cloud_password"
 CONF_HA_DEVICE_ID = "ha_device_id"             # generated once, persistent
@@ -46,6 +47,10 @@ DEFAULT_MQTT_BASE_TOPIC = "villa_gw"
 
 # Cloud defaults
 DEFAULT_ENABLE_CLOUD = False  # opt-in: Cloud-SIP listener for ring events
+# Experiment: when the Cloud listener is on, reply 100 Trying + 180 Ringing to
+# the forked INVITE (behave like a real phone) instead of staying fully silent.
+# Default OFF → SilentStrategy (current production behaviour).
+DEFAULT_ENABLE_SIP_RINGING = False
 
 # Capped exponential backoff for any persistent connection (telnet tail, poll loop)
 BACKOFF_INITIAL_S = 2.0     # first retry after 2s
