@@ -31,13 +31,19 @@ Rewrite erzwingen (Risiko ohne Mehrwert). Gleiche Trennung/Erweiterbarkeit.
 1. ✅ **Lint-Altlasten** (12 ruff-Fehler) — erledigt, Commit.
 2. ✅ `sip_messages.py` extrahiert; `sip_client.py` re-exportiert (Tests nutzen `sip.parse_headers` etc.). Commit.
 3. ✅ `sip_transport.py` extrahiert (SipTransport + TlsSipTransport + `_make_unverified_tls_context`); re-export für coordinator+tests. Commit. → sip_client.py 700→435 Zeilen.
-4. ⏳ `sip_strategies.py` einführen: `SilentStrategy` + `EarlyMedia183Strategy`; `_dispatch` ruft
-   Strategie statt eingebetteter if-Zweige. `_build_183`/`_run_early_media_probe` → Strategie/Media.
-5. `sip_media.py`: RTP-Empfang/G.711 aus dem Probe-Code herausziehen, klar gekapselt.
-6. `api.py` → `gw_web.py` + `gw_avlink.py` + `gw_bus.py` + `gw_logtail.py`.
-7. `coordinator.py` entschlacken (Poll/Events ggf. eigene Module).
-8. Test-`importlib`-Shims an neue Modulnamen anpassen; neue Unit-Tests pro Modul.
+4. ✅ `sip_strategies.py`: `InviteStrategy`/`SilentStrategy`/`EarlyMedia183Strategy`; `_dispatch`
+   feuert Ring-Detection zuerst, delegiert Wire-Response an Strategie; `_build_183`/Probe verschoben.
+   + `client.transport`/`.user` Accessor. + Unit-Tests (`test_sip_strategies.py`). 66 Tests. Commit.
+   → **SIP-Schicht damit vollständig restrukturiert (messages·transport·strategies·client), sip_client 700→341.**
+5. ⏸️ `sip_media.py` (RTP/G.711) — **bewusst zurückgestellt**: RTP-Logik lebt aktuell sauber in
+   EarlyMedia183Strategy; die richtige Media-Abstraktion ergibt sich erst beim echten ICE/RTP-Audio-UA.
+   Dann extrahieren (verhindert spekulative Abstraktion).
+6. (Hygiene) `api.py` → `gw_web/avlink/bus/logtail` — nicht audio-blockierend.
+7. (Hygiene) `coordinator.py` (794 Z.) entschlacken — nicht audio-blockierend.
+8. ✅ teilweise: Strategie-Tests da; weitere pro Modul bei 6/7.
 9. README/CHANGELOG, Version → 0.2.0; HACS-Deploy + 1 Restart.
+
+**Audio-relevanter Umbau = fertig.** Schritte 6/7 sind allgemeine Hygiene; Schritt 5 wartet aufs Audio-Feature.
 
 ## Invarianten (dürfen NICHT brechen)
 - Silent-Mode bleibt Default (kein 200 OK ungefragt → iPhone-Fork unberührt).
