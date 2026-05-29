@@ -643,22 +643,33 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             initial=BACKOFF_INITIAL_S, factor=BACKOFF_FACTOR,
             cap=BACKOFF_MAX_S, jitter=BACKOFF_JITTER,
         )
+
+        def _on_registered() -> None:
+            # Fired by run() after a genuine (re-)REGISTER succeeds. Flip the
+            # sensor and reset the backoff only *now* — never optimistically.
+            # A rejected listener therefore escalates its retry interval
+            # (2s → … → cap) instead of hammering the Cloud every
+            # BACKOFF_INITIAL_S (which previously got us close to a block).
+            if not self.cloud_sip_connected:
+                _LOGGER.info("Villa GW SIP-listener registered at %s", server)
+            self.cloud_sip_connected = True
+            bo.reset()
+            self.async_set_updated_data(self.data or {})
+
         while True:
             transport: TlsSipTransport | None = None
             try:
                 transport = await TlsSipTransport.connect(server)
+                # run() is the SINGLE REGISTER path. The old code registered
+                # here *and* again inside run(); the Cloud rejected the
+                # duplicate REGISTER ("failed (initial)"), so the listener
+                # never stayed up and the backoff kept resetting.
                 client = SipClient(
                     server=server, user=user, password=password,
                     transport=transport, on_invite=self._on_sip_invite,
+                    on_registered=_on_registered,
                 )
-                ok = await client.register_once()
-                self.cloud_sip_connected = ok
-                self.async_set_updated_data(self.data or {})
-                if not ok:
-                    raise RuntimeError("SIP REGISTER rejected")
-                bo.reset()
-                _LOGGER.info("Villa GW SIP-listener registered at %s", server)
-                await client.run()  # loops forever until exception
+                await client.run()  # registers → fires callback → loops until error
             except asyncio.CancelledError:
                 self.cloud_sip_connected = False
                 raise

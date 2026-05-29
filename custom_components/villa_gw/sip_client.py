@@ -233,6 +233,7 @@ class SipClient:
         password: str,
         transport: "SipTransport",
         on_invite: OnInvite | None = None,
+        on_registered: Callable[[], None] | None = None,
         active_invite_ttl_s: float = 60.0,
     ) -> None:
         self._server = server
@@ -240,6 +241,14 @@ class SipClient:
         self._password = password
         self._transport = transport
         self._on_invite = on_invite
+        # Fired after every successful (re-)REGISTER inside run(). Lets the
+        # coordinator flip `cloud_sip_connected` True and reset its backoff
+        # only on a genuine, sustained registration — not optimistically.
+        self._on_registered = on_registered
+        # Human-readable reason for the last REGISTER failure (401 w/o digest,
+        # unexpected status, timeout). Surfaced in the coordinator's WARNING
+        # log so a rejected listener is debuggable without DEBUG logging.
+        self.last_register_error: str | None = None
         # SIP message state
         self._call_id = secrets.token_hex(8) + "@hass"
         self._from_tag = secrets.token_hex(4)
@@ -299,6 +308,7 @@ class SipClient:
                     text, re.DOTALL | re.IGNORECASE,
                 )
                 if not m:
+                    self.last_register_error = "401 without Digest challenge"
                     _LOGGER.debug("SIP REGISTER 401 without Digest challenge")
                     return False
                 chall = parse_digest_challenge("Digest " + m.group(1))
@@ -309,10 +319,16 @@ class SipClient:
                 await self._transport.send(self._new_register(auth_header=auth))
                 continue
             if "SIP/2.0 200" in text and self._CSEQ_REGISTER_RE.search(text):
+                self.last_register_error = None
                 _LOGGER.debug("SIP REGISTER OK")
                 return True
+            # Capture the status line (e.g. "SIP/2.0 403 Forbidden") so the
+            # caller can log *why* registration was rejected.
+            status = text.splitlines()[0].strip() if text.strip() else "<empty>"
+            self.last_register_error = f"unexpected response: {status}"
             _LOGGER.debug("SIP REGISTER unexpected response: %s", text[:120])
             return False
+        self.last_register_error = f"timeout after {timeout_s:.0f}s (no useful reply)"
         _LOGGER.debug("SIP REGISTER timeout")
         return False
 
@@ -436,13 +452,21 @@ class SipClient:
         no longer reach us.
         """
         if not await self.register_once():
-            raise RuntimeError("SIP REGISTER failed (initial)")
+            raise RuntimeError(
+                f"SIP REGISTER failed (initial): {self.last_register_error}"
+            )
+        if self._on_registered is not None:
+            self._on_registered()
         loop = asyncio.get_event_loop()
         last_register = loop.time()
         while True:
             if loop.time() - last_register > REREGISTER_INTERVAL:
                 if not await self.register_once():
-                    raise RuntimeError("SIP REGISTER failed (periodic)")
+                    raise RuntimeError(
+                        f"SIP REGISTER failed (periodic): {self.last_register_error}"
+                    )
+                if self._on_registered is not None:
+                    self._on_registered()
                 last_register = loop.time()
             got = await self.process_one_message()
             if not got:

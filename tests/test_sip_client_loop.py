@@ -423,3 +423,41 @@ async def test_partial_message_blocks_until_complete() -> None:
         "from_sip": "<sip:doorbell@srv>;tag=db",
         "to_sip": "<sip:alice@srv>",
     }]
+
+
+@pytest.mark.asyncio
+async def test_register_failure_records_last_register_error() -> None:
+    """A rejected REGISTER stores a human-readable reason for the WARNING log."""
+    transport = FakeTransport(script=[
+        b"SIP/2.0 403 Forbidden\r\nCSeq: 1 REGISTER\r\nContent-Length: 0\r\n\r\n",
+    ])
+    client = sip.SipClient(
+        server="srv", user="alice", password="secret", transport=transport,
+    )
+    assert await client.register_once() is False
+    assert client.last_register_error is not None
+    assert "403" in client.last_register_error
+
+
+@pytest.mark.asyncio
+async def test_run_fires_on_registered_once_on_success() -> None:
+    """run() registers exactly once (no double-REGISTER) and fires the callback.
+
+    The pre-fix coordinator registered in _sip_loop *and* again in run(); the
+    Cloud rejected the duplicate. run() is now the single REGISTER path and
+    signals success via on_registered so the coordinator can flip the sensor
+    and reset its backoff only on a genuine registration.
+    """
+    transport = FakeTransport(script=[_401_response(), _200_ok_for("REGISTER")])
+    calls: list[int] = []
+    client = sip.SipClient(
+        server="srv", user="alice", password="secret",
+        transport=transport, on_registered=lambda: calls.append(1),
+    )
+    try:
+        await asyncio.wait_for(client.run(), timeout=0.3)
+    except asyncio.TimeoutError:
+        pass
+    assert calls == [1]
+    # Exactly one REGISTER cycle: unauth + digest-auth retry = 2 sends.
+    assert len(transport.sent) == 2

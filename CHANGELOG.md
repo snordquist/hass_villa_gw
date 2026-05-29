@@ -4,6 +4,28 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] — 2026-05-29
+
+### Fixed
+
+- **Cloud SIP listener never stayed registered** (`cloud_sip_connected`
+  stuck `off`, log spamming `SIP REGISTER failed (initial)` every ~2 s).
+  Two bugs: (1) `_sip_loop` called `register_once()` *and* then `run()`
+  re-registered immediately — the Cloud rejected the duplicate REGISTER;
+  (2) the backoff was `reset()` right after that first (doomed) register,
+  so a rejected listener retried every 2 s instead of escalating, risking
+  a Cloud-side block. `run()` is now the single REGISTER path and reports
+  success via a new `on_registered` callback; the coordinator flips
+  `cloud_sip_connected` and resets the backoff **only** on a genuine
+  registration, so failures escalate (2 s → … → 5 min cap).
+
+### Added
+
+- `SipClient.last_register_error` + `on_registered` callback. REGISTER
+  rejections now surface the SIP status line (e.g. `403 Forbidden`) in the
+  coordinator's WARNING log, so a failing listener is debuggable without
+  enabling DEBUG.
+
 ## [0.1.1] — 2026-05-29
 
 ### Fixed
