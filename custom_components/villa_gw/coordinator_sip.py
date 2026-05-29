@@ -3,9 +3,8 @@
 Maintains a TLS SIP-REGISTER session with the iLifestyle Cloud as a 2nd
 App-User and receives forked SIP-INVITEs on doorbell rings. Silent-mode
 only: never answers an INVITE (no 200 OK) so the parallel iPhone-fork is
-untouched; the optional Early-Media probe replies 183+SDP to a single
-armed ring. Mixed into `VillaGwCoordinator`; relies on shared state
-(`cloud_sip_connected`, `early_probe_armed`, `_fire`, `_on_probe_result`).
+untouched. Mixed into `VillaGwCoordinator`; relies on shared state
+(`cloud_sip_connected`, `_fire`).
 """
 
 from __future__ import annotations
@@ -72,8 +71,6 @@ class VillaGwSipMixin:
                     server=server, user=user, password=password,
                     transport=transport, on_invite=self._on_sip_invite,
                     on_registered=_on_registered,
-                    is_probe_armed=lambda: self.early_probe_armed,
-                    on_probe_result=self._on_probe_result,
                 )
                 await client.run()  # registers → fires callback → loops until error
             except asyncio.CancelledError:

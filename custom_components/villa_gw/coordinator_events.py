@@ -69,39 +69,8 @@ class VillaGwEventsMixin:
             self.live_view_active = False
             self.live_view_started_at = None
             changed = True
-        if (
-            self.early_probe_armed
-            and now_loop - self._early_probe_armed_at > 300.0
-        ):
-            self.early_probe_armed = False
-            _LOGGER.info("Early-media probe disarmed (5-min Timeout, kein Klingeln)")
-            changed = True
         if changed:
             self.async_set_updated_data(self.data or {})
-
-    def arm_early_media_probe(self) -> None:
-        """Arm the one-shot Early-Media probe for the NEXT incoming ring.
-
-        The SIP listener then replies 183+SDP to that one INVITE and measures
-        early-media RTP — WITHOUT answering (no 200 OK, no door talk-mode,
-        iPhone fork untouched). Auto-disarms after one ring or 5 min.
-        """
-        self.early_probe_armed = True
-        self._early_probe_armed_at = self.hass.loop.time()
-        self.last_probe_result = None
-        _LOGGER.warning(
-            "Early-media probe SCHARF — bitte jetzt EINMAL klingeln "
-            "(HA antwortet 183, nimmt NICHT an). Auto-Disarm in 5 min.",
-        )
-        self.async_set_updated_data(self.data or {})
-
-    @callback
-    def _on_probe_result(self, summary: str) -> None:
-        """Called by SipClient after the probe ran on one INVITE."""
-        self.early_probe_armed = False
-        self.last_probe_result = summary
-        _LOGGER.warning("Early-media probe ERGEBNIS: %s", summary)
-        self.async_set_updated_data(self.data or {})
 
     # ─────────────────────────────────────────── client-side live-view marker
 

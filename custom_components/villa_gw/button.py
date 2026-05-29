@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -87,14 +86,6 @@ BUTTONS: tuple[VillaGwButtonDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         entity_registry_enabled_default=False,  # only useful with multiple outdoor stations
         action=lambda c, _o: c.switch_camera(),
-    ),
-    VillaGwButtonDescription(
-        key="arm_early_probe",
-        translation_key="arm_early_probe",
-        icon="mdi:microphone-question",
-        entity_category=EntityCategory.CONFIG,
-        action=lambda _c, _o: asyncio.sleep(0),  # no bus action; arming is in post_action
-        post_action=lambda coord: coord.arm_early_media_probe(),
     ),
 )
 

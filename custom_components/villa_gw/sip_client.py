@@ -36,7 +36,7 @@ from .sip_messages import (
     parse_digest_challenge,
     parse_headers,
 )
-from .sip_strategies import EarlyMedia183Strategy, SilentStrategy
+from .sip_strategies import SilentStrategy
 # SipTransport used in annotations; TlsSipTransport re-exported for coordinator + tests
 from .sip_transport import SipTransport, TlsSipTransport  # noqa: F401
 
@@ -73,8 +73,6 @@ class SipClient:
         transport: "SipTransport",
         on_invite: OnInvite | None = None,
         on_registered: Callable[[], None] | None = None,
-        is_probe_armed: Callable[[], bool] | None = None,
-        on_probe_result: Callable[[str], None] | None = None,
         active_invite_ttl_s: float = 60.0,
     ) -> None:
         self._server = server
@@ -83,12 +81,9 @@ class SipClient:
         self._transport = transport
         self._on_invite = on_invite
         # INVITE response is delegated to a pluggable strategy (ring-detection
-        # via on_invite fires independently). Silent by default; when
-        # is_probe_armed() is True at INVITE time we use the one-shot
-        # Early-Media 183 probe (Schritt 2) — see sip_strategies.py.
-        self._is_probe_armed = is_probe_armed
+        # via on_invite fires independently). Silent by default — see
+        # sip_strategies.py.
         self._silent_strategy: object = SilentStrategy()
-        self._probe_strategy: object = EarlyMedia183Strategy(on_result=on_probe_result)
         # Fired after every successful (re-)REGISTER inside run(). Lets the
         # coordinator flip `cloud_sip_connected` True and reset its backoff
         # only on a genuine, sustained registration — not optimistically.
@@ -231,10 +226,6 @@ class SipClient:
                 return
             local_tag = f"hass-{secrets.token_hex(4)}"
             self._active_invites[cid] = (msg, local_tag, now_mono)
-            # Full raw INVITE (incl. SDP offer) at DEBUG — inspect offered
-            # codec / SRTP / media addresses for the audio-capture path.
-            # First INVITE only (retransmits returned above).
-            _LOGGER.debug("Cloud SIP INVITE (raw):\n%s", msg)
             # Ring-detection fires first (fast) and is independent of how we
             # respond on the wire.
             if self._on_invite is not None:
@@ -242,11 +233,8 @@ class SipClient:
                 if asyncio.iscoroutine(res):
                     await res
             # The SIP response is the strategy's job: SilentStrategy (default,
-            # lets the iPhone-fork own the call) or the one-shot Early-Media
-            # 183 probe when armed. The strategy reports its own result/errors.
-            armed = self._is_probe_armed is not None and self._is_probe_armed()
-            strategy = self._probe_strategy if armed else self._silent_strategy
-            await strategy.respond(self, msg, local_tag)
+            # lets the iPhone-fork own the call).
+            await self._silent_strategy.respond(self, msg, local_tag)
             return
         if first_line.startswith("CANCEL "):
             h = parse_headers(msg)

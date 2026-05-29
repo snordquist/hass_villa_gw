@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import importlib.util
 import sys
 import types
@@ -71,29 +70,3 @@ async def test_silent_strategy_sends_nothing() -> None:
     client = _FakeClient()
     await strat.SilentStrategy().respond(client, _INVITE, "hass-tag")
     assert client.transport.sent == []
-
-
-def test_build_183_offers_pcmu_recvonly_sdp() -> None:
-    client = _FakeClient()
-    msg = strat.EarlyMedia183Strategy()._build_183(client, _INVITE, "hass-tag").decode()
-    assert msg.startswith("SIP/2.0 183 Session Progress")
-    assert "Content-Type: application/sdp" in msg
-    assert "m=audio 40000 RTP/AVP 0 101" in msg
-    assert "a=rtpmap:0 PCMU/8000" in msg
-    assert "a=recvonly" in msg
-    # To-tag added, Call-ID/CSeq echoed from the request
-    assert ";tag=hass-tag" in msg
-    assert "Call-ID: cid-1" in msg
-    assert "CSeq: 102 INVITE" in msg
-
-
-@pytest.mark.asyncio
-async def test_early_media_probe_reports_when_no_rtp() -> None:
-    """With a tiny listen window and no incoming RTP, respond() reports 'no RTP'."""
-    client = _FakeClient()
-    results: list[str] = []
-    s = strat.EarlyMedia183Strategy(on_result=results.append, listen_s=0.05)
-    await asyncio.wait_for(s.respond(client, _INVITE, "hass-tag"), timeout=5.0)
-    assert any(b"183 Session Progress" in b for b in client.transport.sent)
-    assert len(results) == 1
-    assert "KEIN early-media RTP" in results[0]

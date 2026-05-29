@@ -169,9 +169,6 @@ def _make_coord() -> VillaGwCoordinator:
     coord.call_active = False
     coord.outdoor_station_ringing = False
     coord.cloud_online = False
-    coord.early_probe_armed = False
-    coord._early_probe_armed_at = 0.0
-    coord.last_probe_result = None
     coord.last_doorbell_at = None
     coord.last_caller = None
     coord.last_app_user = None

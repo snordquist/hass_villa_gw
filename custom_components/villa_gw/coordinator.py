@@ -122,12 +122,6 @@ class VillaGwCoordinator(
         self._last_cloud_check = 0.0  # monotonic ts of last /api/sip poll
         # Cloud SIP REGISTER session health — drives binary_sensor.cloud_sip_connected
         self.cloud_sip_connected = False
-        # One-shot Early-Media probe (Schritt 2). Armed via the diagnostic
-        # button; the SIP listener replies 183+SDP to the NEXT ring and
-        # measures early-media RTP. Auto-disarms after 5 min or after one ring.
-        self.early_probe_armed = False
-        self._early_probe_armed_at = 0.0
-        self.last_probe_result: str | None = None
         # Last source that fired a ring event ("sip"|"log"|"poll"|None).
         # Updated each time `_fire(EVENT_DOORBELL_RINGING, …)` actually fires
         # (not when it dedups), so the diagnostic sensor shows whichever
