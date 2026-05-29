@@ -4,6 +4,24 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-05-29
+
+### Changed — internal restructure (behaviour-preserving, 66 tests green)
+
+- **SIP layer split into focused modules** for clarity and extensibility:
+  - `sip_messages.py` — pure wire helpers (parse/build/digest/SDP), no I/O.
+  - `sip_transport.py` — `SipTransport` protocol + `TlsSipTransport`.
+  - `sip_strategies.py` — pluggable **`InviteStrategy`**: `SilentStrategy`
+    (default — lets the iPhone fork own the call) and `EarlyMedia183Strategy`
+    (the Schritt-2 probe). New SIP experiments (e.g. a future answer-and-record
+    strategy) drop in as new classes without touching the state machine.
+  - `sip_client.py` — slimmed state machine (700 → 341 lines). `_dispatch`
+    fires ring-detection first, then delegates the wire response to the
+    strategy. Added `client.transport` / `client.user` accessors.
+- Cleared 12 pre-existing lint errors (E701/E731/F401/F841).
+- Added `test_sip_strategies.py`. No functional change to ring detection,
+  cloud_online, the SIP listener or the doorbell pipeline.
+
 ## [0.1.5] — 2026-05-29
 
 ### Added
