@@ -492,14 +492,29 @@ class TlsSipTransport:
         self.local_ip: str = ""
         self.local_port: int = 0
 
+    @staticmethod
+    def _make_unverified_tls_context() -> ssl.SSLContext:
+        """Build a client TLS context that verifies nothing — without I/O.
+
+        The Cloud presents a self-signed cert and we use ``CERT_NONE``, so the
+        system CA store is irrelevant. ``ssl.create_default_context()`` would
+        load it anyway via blocking file I/O (``load_default_certs`` /
+        ``set_default_verify_paths``), which trips HA's event-loop
+        blocking-call detector. A bare client context skips that entirely.
+        ``check_hostname`` must be cleared before ``verify_mode`` or the stdlib
+        raises.
+        """
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
     @classmethod
     async def connect(
         cls, host: str, port: int = DEFAULT_SIP_PORT,
         *, connect_timeout_s: float = 10.0,
     ) -> "TlsSipTransport":
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        ctx = cls._make_unverified_tls_context()
         transport = cls()
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host=host, port=port, ssl=ctx),

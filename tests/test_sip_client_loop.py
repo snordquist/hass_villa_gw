@@ -461,3 +461,10 @@ async def test_run_fires_on_registered_once_on_success() -> None:
     assert calls == [1]
     # Exactly one REGISTER cycle: unauth + digest-auth retry = 2 sends.
     assert len(transport.sent) == 2
+
+
+def test_make_unverified_tls_context_skips_verification_and_ca_load() -> None:
+    """TLS context verifies nothing (so no blocking CA-store load is needed)."""
+    ctx = sip.TlsSipTransport._make_unverified_tls_context()
+    assert ctx.check_hostname is False
+    assert ctx.verify_mode == sip.ssl.CERT_NONE

@@ -4,6 +4,19 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] — 2026-05-29
+
+### Fixed
+
+- **Event-loop blocking call during SIP connect.**
+  `TlsSipTransport.connect()` built its TLS context with
+  `ssl.create_default_context()`, which loads the system CA store via blocking
+  file I/O (`load_default_certs` / `set_default_verify_paths`) — flagged by
+  HA's event-loop blocking-call detector on every (re)connect. Since the Cloud
+  cert is self-signed and we use `CERT_NONE`, the CA store is never needed: the
+  context is now built directly as a bare `PROTOCOL_TLS_CLIENT` context
+  (`_make_unverified_tls_context`), doing no I/O. No behaviour change.
+
 ## [0.1.2] — 2026-05-29
 
 ### Fixed
