@@ -53,6 +53,12 @@ BACKOFF_FACTOR = 2.0        # double on each consecutive failure
 BACKOFF_MAX_S = 300.0       # cap at 5 minutes
 BACKOFF_JITTER = 0.25       # ±25% jitter to avoid thundering herd
 
+# Authoritative GW↔Cloud link-status cadence. The 1 Hz main poll exists for
+# ring-detection; re-reading /api/sip that fast would hammer the web login,
+# so cloud-link status is refreshed on this slower beat. The log-tail
+# `cloud_connect` event still updates it instantly between these polls.
+CLOUD_STATUS_INTERVAL_S = 30.0
+
 # Doorbell-ringing-pulse — how long the binary_sensor stays ON after a ring
 DOORBELL_PULSE_SECONDS = 10
 # Counter reset hour (midnight in HA's local timezone)

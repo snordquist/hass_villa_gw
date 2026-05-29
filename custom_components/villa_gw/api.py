@@ -177,6 +177,22 @@ class VillaGwClient:
     async def rtsp_url(self) -> str:
         return f"rtsp://{self._user}:{self._pw}@{self._host}/live.sdp"
 
+    async def cloud_link_online(self) -> bool:
+        """GW↔Cloud backend link status, read authoritatively via the web API.
+
+        ``GET /api/sip`` returns ``{"online": <bool>, ...}`` reflecting the
+        GW's own SIP/cloud registration with ``de.ilifestyle-cloud.com``.
+
+        Unlike the edge-triggered ``mqtt connect ok`` log line — which only
+        appears on a (re)connect and is therefore missed across an HA restart
+        (``tail -F`` only replays the last few lines) — this is *pollable*.
+        It lets ``binary_sensor.cloud_online`` self-heal to the true state
+        instead of staying falsely ``off`` until the next reconnect happens
+        to be logged.
+        """
+        data = await self._get_json("/api/sip")
+        return bool(data.get("online"))
+
     # ──────────────────────────────────────────────────────── avlink (port 10086, read-only AT+B)
 
     async def _avlink_query(self, command: str) -> str:

@@ -36,6 +36,7 @@ from .const import (
     BACKOFF_INITIAL_S,
     BACKOFF_JITTER,
     BACKOFF_MAX_S,
+    CLOUD_STATUS_INTERVAL_S,
     CONF_CACHED_SIP_ID,
     CONF_CACHED_SIP_PASSWORD,
     CONF_CACHED_SIP_SERVER,
@@ -124,7 +125,11 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.doorbell_active = False
         self.call_active = False
         self.outdoor_station_ringing = False
-        self.cloud_online = False  # from last `mqtt connect ok` event
+        # GW↔Cloud backend link. Authoritative source = the poll loop reading
+        # `/api/sip` online (self-healing across restarts); the log-tail
+        # `cloud_connect` event is a fast-path update between those polls.
+        self.cloud_online = False
+        self._last_cloud_check = 0.0  # monotonic ts of last /api/sip poll
         # Cloud SIP REGISTER session health — drives binary_sensor.cloud_sip_connected
         self.cloud_sip_connected = False
         # Last source that fired a ring event ("sip"|"log"|"poll"|None).
@@ -328,6 +333,30 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if prev_state is not None and (state != prev_state or call != prev_call):
                     await self._on_state_transition(prev_state, prev_call, state, call)
                 prev_state, prev_call = state, call
+
+                # Authoritative GW↔Cloud link status (throttled; self-healing
+                # across restarts). The log-tail `cloud_connect` event updates
+                # this instantly between polls — this slower read is the
+                # backstop that fixes the stale-`off`-after-restart bug.
+                nowm = self.hass.loop.time()
+                if nowm - self._last_cloud_check >= CLOUD_STATUS_INTERVAL_S:
+                    self._last_cloud_check = nowm
+                    try:
+                        online = await self.client.cloud_link_online()
+                        if online != self.cloud_online:
+                            _LOGGER.info(
+                                "Villa GW cloud link → %s (GW /api/sip)",
+                                "online" if online else "offline",
+                            )
+                        self.cloud_online = online
+                    except VillaGwConnectionError as err:
+                        # A web hiccup must neither flip the sensor nor fail
+                        # the poll (the avlink read already succeeded) — keep
+                        # the last known value.
+                        _LOGGER.debug(
+                            "cloud-link status poll failed, keeping %s: %s",
+                            self.cloud_online, err,
+                        )
 
                 self.async_set_updated_data(self.data or {})
 
@@ -533,7 +562,13 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.last_unlock_at = wall_now
             self.unlock_count_today += 1
         elif etype == "cloud_connect":
-            self.cloud_online = event.get("status") == "ok"
+            new_online = event.get("status") == "ok"
+            if new_online != self.cloud_online:
+                _LOGGER.info(
+                    "Villa GW cloud link → %s (log: mqtt connect %s)",
+                    "online" if new_online else "offline", event.get("status"),
+                )
+            self.cloud_online = new_online
         elif etype == "cloud_mqtt_in":
             payload = event.get("payload") or {}
             from_uuid = payload.get("from") if isinstance(payload, dict) else None

@@ -4,6 +4,27 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] — 2026-05-29
+
+### Fixed
+
+- **`binary_sensor.cloud_online` no longer falsely reads `off` after a
+  restart.** It was driven *only* by the edge-triggered `mqtt connect ok`
+  log line, initialised to `False`, and never re-synced — so after every
+  HA restart it stayed `off` until the GW happened to (re)connect MQTT and
+  emit a fresh log line (which `tail -F` rarely replays). The poll loop now
+  reads the authoritative GW→Cloud link status from the web API
+  (`GET /api/sip` → `online`) on a throttled cadence
+  (`CLOUD_STATUS_INTERVAL_S`, 30 s), so the sensor self-heals to the true
+  state on the first poll after start. The log-tail `cloud_connect` event
+  remains the instant fast-path between polls.
+
+### Added
+
+- `VillaGwClient.cloud_link_online()` — authoritative GW↔Cloud status read.
+- INFO logging on every `cloud_online` transition (poll- and log-sourced),
+  for future debugging.
+
 ## [0.1.0] — 2026-05-24
 
 First feature-complete release. Adds an opt-in Cloud SIP ring listener
