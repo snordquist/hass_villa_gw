@@ -180,6 +180,7 @@ def _make_coord() -> VillaGwCoordinator:
     coord.doorbell_count_today = 0
     coord.unlock_count_today = 0
     coord.call_count_today = 0
+    coord.last_ring_source = None
     coord._last_event_at = {}
     return coord
 
@@ -262,3 +263,60 @@ def test_dedup_window_suppresses_duplicate_live_view_event():
     coord._fire(const.EVENT_LIVE_VIEW_STARTED, {"source": "second"})
     started = [p for et, p in coord.hass.bus.fired if et == const.EVENT_LIVE_VIEW_STARTED]
     assert started == [{"source": "first"}]
+
+
+# ──────────────────────────────────────────── SIP-invite bridge (coordinator_sip)
+
+def test_on_sip_invite_fires_ring_with_sip_source():
+    """A SIP INVITE fires the canonical ring event tagged source='sip'."""
+    coord = _make_coord()
+    coord._on_sip_invite(
+        {"call_id": "cid-1", "from_sip": "alice", "to_sip": "bob"}
+    )
+    rings = [p for et, p in coord.hass.bus.fired if et == const.EVENT_DOORBELL_RINGING]
+    assert rings == [
+        {"source": "sip", "call_id": "cid-1", "from_sip": "alice", "to_sip": "bob"}
+    ]
+    assert coord.last_ring_source == "sip"
+
+
+def test_on_sip_invite_deduped_against_recent_poll_ring():
+    """If poll/log already fired a ring within DEDUP_WINDOW, the SIP one is dropped."""
+    coord = _make_coord()
+    coord._fire(const.EVENT_DOORBELL_RINGING, {"source": "poll"})
+    coord.hass.bus.fired.clear()
+    coord._on_sip_invite({"call_id": "cid-2"})
+    rings = [p for et, p in coord.hass.bus.fired if et == const.EVENT_DOORBELL_RINGING]
+    assert rings == []
+    # source stays the winning poll-path value
+    assert coord.last_ring_source == "poll"
+
+
+# ──────────────────────────────────────────── poll-path transitions (coordinator_poll)
+
+def test_state_transition_no_call_to_call_rings_and_counts():
+    """A 'no call → call' transition fires ring+incoming and bumps counters."""
+    coord = _make_coord()
+    _run(coord._on_state_transition(1, [0], 2, [1]))
+
+    assert coord.doorbell_active is True
+    assert coord.call_active is True
+    assert coord.doorbell_count_today == 1
+    assert coord.call_count_today == 1
+    fired = {et for et, _ in coord.hass.bus.fired}
+    assert const.EVENT_STATE_CHANGED in fired
+    assert const.EVENT_CALL_INCOMING in fired
+    assert const.EVENT_DOORBELL_RINGING in fired
+    assert coord.last_ring_source == "poll"
+
+
+def test_state_transition_call_to_no_call_ends_call():
+    """A 'call → no call' transition clears flags and fires call-ended."""
+    coord = _make_coord()
+    coord.call_active = True
+    coord.doorbell_active = True
+    _run(coord._on_state_transition(2, [1], 1, [0]))
+
+    assert coord.call_active is False
+    assert coord.doorbell_active is False
+    assert const.EVENT_CALL_ENDED in {et for et, _ in coord.hass.bus.fired}
