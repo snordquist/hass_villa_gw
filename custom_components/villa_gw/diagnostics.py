@@ -14,7 +14,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import (
-    CONF_HOST,
     CONF_WEB_PASSWORD,
     CONF_WEB_USERNAME,
     DOMAIN,

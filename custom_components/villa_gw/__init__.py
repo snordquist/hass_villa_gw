@@ -148,7 +148,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def svc_wake(call: ServiceCall) -> None:
         client = _first_client()
-        if not client: return
+        if not client:
+            return
         opts = _first_entry_opts()
         duration = call.data.get("duration", opts.get(CONF_LIVE_VIEW_DURATION, DEFAULT_LIVE_VIEW_DURATION))
         address = call.data.get("address", opts.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS))
@@ -156,26 +157,31 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def svc_stop_live(call: ServiceCall) -> None:
         client = _first_client()
-        if not client: return
+        if not client:
+            return
         opts = _first_entry_opts()
         address = call.data.get("address", opts.get(CONF_OUTDOOR_ADDRESS, DEFAULT_OUTDOOR_ADDRESS))
         await client.stop_live_view(address=address)
 
     async def svc_unlock(call: ServiceCall) -> None:
         client = _first_client()
-        if client: await client.unlock_door()
+        if client:
+            await client.unlock_door()
 
     async def svc_hangup(call: ServiceCall) -> None:
         client = _first_client()
-        if client: await client.hang_call()
+        if client:
+            await client.hang_call()
 
     async def svc_accept(call: ServiceCall) -> None:
         client = _first_client()
-        if client: await client.hook_call()
+        if client:
+            await client.hook_call()
 
     async def svc_switch(call: ServiceCall) -> None:
         client = _first_client()
-        if client: await client.switch_camera()
+        if client:
+            await client.switch_camera()
 
     async def svc_snapshot(call: ServiceCall) -> None:
         client = _first_client()

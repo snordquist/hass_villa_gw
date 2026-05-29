@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/sascha.nordquist/git/private/homeassistant/homeassistant-villa-gw/.claude/hooks/check-secrets.sh",
+            "timeout": 10,
+            "statusMessage": "Scanning for secrets..."
+          }
+        ]
+      }
+    ]
+  }
+}

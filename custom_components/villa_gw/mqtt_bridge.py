@@ -98,13 +98,16 @@ class VillaGwMqttBridge:
         """
         node = f"villa_gw_{self.did}"
         avail = topic_availability(self.base, self.did)
-        evt = lambda slug: topic_event(self.base, self.did, slug)
+
+        def evt(slug: str) -> str:
+            return topic_event(self.base, self.did, slug)
+
+        def cmd(c: str) -> str:
+            return topic_cmd(self.base, self.did, c)
+
         state = topic_state(self.base, self.did)
         system = topic_system(self.base, self.did)
-        cloud_in = topic_cloud(self.base, self.did, "in")
-        cloud_out = topic_cloud(self.base, self.did, "out")
         cloud_connect = topic_cloud(self.base, self.did, "connect")
-        cmd = lambda c: topic_cmd(self.base, self.did, c)
         device = self._device_block()
         availability = [{"topic": avail, "payload_available": "online", "payload_not_available": "offline"}]
 
