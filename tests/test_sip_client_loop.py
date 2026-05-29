@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import ssl
 import sys
 import types
 from collections import deque
@@ -467,4 +468,4 @@ def test_make_unverified_tls_context_skips_verification_and_ca_load() -> None:
     """TLS context verifies nothing (so no blocking CA-store load is needed)."""
     ctx = sip.TlsSipTransport._make_unverified_tls_context()
     assert ctx.check_hostname is False
-    assert ctx.verify_mode == sip.ssl.CERT_NONE
+    assert ctx.verify_mode == ssl.CERT_NONE
