@@ -136,8 +136,9 @@ async def test_register_returns_false_on_non_401_non_200() -> None:
 
 
 @pytest.mark.asyncio
-async def test_invite_fires_callback_and_does_not_respond() -> None:
-    """The silent-mode contract: INVITE → callback yes, SIP wire response NO."""
+async def test_invite_fires_callback_and_rings() -> None:
+    """Default RingingStrategy: INVITE → callback fires AND 100 Trying + 180
+    Ringing are sent (never 200, so the iPhone fork still owns the answer)."""
     invite = (
         "INVITE sip:alice@srv SIP/2.0\r\n"
         "Via: SIP/2.0/TLS 192.0.2.99:5061;branch=z9hG4bK-inv\r\n"
@@ -160,8 +161,10 @@ async def test_invite_fires_callback_and_does_not_respond() -> None:
     await client.process_one_message()
     assert len(received) == 1
     assert received[0]["call_id"] == "ring-1"
-    # Nothing sent — silent mode
-    assert transport.sent == []
+    # Rings like a real phone: 100 Trying then 180 Ringing, never an answer.
+    statuses = [s.split(b"\r\n", 1)[0] for s in transport.sent]
+    assert statuses == [b"SIP/2.0 100 Trying", b"SIP/2.0 180 Ringing"]
+    assert not any(b"200 OK" in s for s in transport.sent)
 
 
 @pytest.mark.asyncio
@@ -351,14 +354,16 @@ async def test_invite_retransmit_does_not_refire_or_replace_tag() -> None:
     )
     await client.process_one_message()  # first INVITE
     first_tag = client._active_invites["retx-1"][1]  # noqa: SLF001
+    sent_after_first = len(transport.sent)
     await client.process_one_message()  # retransmit
     second_tag = client._active_invites["retx-1"][1]  # noqa: SLF001
     # Callback fires exactly once
     assert len(received) == 1
     # Local tag stays stable across retransmits
     assert first_tag == second_tag
-    # Silent-mode still respected — no responses sent
-    assert transport.sent == []
+    # Retransmit produces NO additional wire output — dedup returns early,
+    # before the strategy would respond again.
+    assert len(transport.sent) == sent_after_first
 
 
 @pytest.mark.asyncio

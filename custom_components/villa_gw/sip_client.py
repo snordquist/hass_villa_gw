@@ -36,7 +36,7 @@ from .sip_messages import (
     parse_digest_challenge,
     parse_headers,
 )
-from .sip_strategies import SilentStrategy
+from .sip_strategies import RingingStrategy
 # SipTransport used in annotations; TlsSipTransport re-exported for coordinator + tests
 from .sip_transport import SipTransport, TlsSipTransport  # noqa: F401
 
@@ -82,9 +82,12 @@ class SipClient:
         self._transport = transport
         self._on_invite = on_invite
         # INVITE response is delegated to a pluggable strategy (ring-detection
-        # via on_invite fires independently). Silent by default — see
-        # sip_strategies.py. RingingStrategy (100+180) is the opt-in experiment.
-        self._invite_strategy: object = invite_strategy or SilentStrategy()
+        # via on_invite fires independently). RingingStrategy (100 Trying + 180
+        # Ringing, never 200) is the default — it behaves like a real phone so
+        # the Cloud B2BUA lets the iPhone fork answer (verified 2026-05-30; pure
+        # SilentStrategy left the call un-answerable). SilentStrategy is retained
+        # in sip_strategies.py as a seam for future experiments.
+        self._invite_strategy: object = invite_strategy or RingingStrategy()
         # Fired after every successful (re-)REGISTER inside run(). Lets the
         # coordinator flip `cloud_sip_connected` True and reset its backoff
         # only on a genuine, sustained registration — not optimistically.

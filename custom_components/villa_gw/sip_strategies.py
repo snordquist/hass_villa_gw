@@ -25,11 +25,13 @@ class InviteStrategy(Protocol):
 
 
 class SilentStrategy:
-    """Default & safe: send NO SIP response.
+    """Send NO SIP response at all.
 
-    Lets the Cloud's parallel iPhone-fork own the call; our branch times out
-    cleanly. Any active response (180/183/486/200) marginalises the iPhone
-    fork, so silence is the production default.
+    Retained as a seam / reference, but **no longer the default**: pure silence
+    leaves the Cloud B2BUA with no transaction state on our branch and the
+    iPhone fork could ring but NOT be answered (call dropped at CONFIRMED —
+    verified 2026-05-30). RingingStrategy is the default instead. Keep this only
+    for experiments where a fully-passive observer is explicitly wanted.
     """
 
     async def respond(
@@ -53,7 +55,8 @@ class RingingStrategy:
     callback. Multi-device ringing is a supported Cloud scenario, so a
     correctly-ringing 2nd endpoint should coexist with the iPhone.
 
-    EXPERIMENTAL — opt-in via `enable_sip_ringing`. Default stays SilentStrategy.
+    This is the DEFAULT strategy (see `SipClient.__init__`) since 2026-05-30,
+    verified to keep the iPhone fork answerable.
     """
 
     async def respond(

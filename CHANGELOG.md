@@ -4,6 +4,26 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-05-30
+
+### Changed
+- **`RingingStrategy` is now the DEFAULT** Cloud-SIP INVITE behaviour; the
+  `enable_sip_ringing` option (added in 0.4.0) is **removed**. Verified live:
+  replying `100 Trying` + `180 Ringing` (never `200`) lets the parallel iPhone
+  fork answer the doorbell call — whereas pure silence (the old default) left
+  it un-answerable (the call dropped at `CONFIRMED`). `SilentStrategy` is kept
+  in code as a pluggable seam for future experiments, but is no longer
+  selectable or the default.
+
+### Notes
+- Existing config entries that still carry a stored `enable_sip_ringing` key
+  are unaffected — it is simply ignored.
+- Companion HA-side fix (not in this repo): the doorbell recording automation
+  must **not** press `button.live_sicht` on ring. The ring/SIP call already
+  activates the RTSP stream, so HA records it **passively**; an active
+  live-view monitor collides with the answer's own bus monitor
+  (`AT_UART_MONITOR err` → call drop).
+
 ## [0.4.0] — 2026-05-30
 
 ### Added
