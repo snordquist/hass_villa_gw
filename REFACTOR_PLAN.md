@@ -29,10 +29,9 @@ Rewrite erzwingen (Risiko ohne Mehrwert). Gleiche Trennung/Erweiterbarkeit.
 
 ## Schritte (geordnet, je committbar, Tests grün)
 1. ✅ **Lint-Altlasten** (12 ruff-Fehler) — erledigt, Commit.
-2. `sip_messages.py` extrahieren; `sip_client.py` importiert+re-exportiert. (Tests referenzieren
-   `sip.build_register`/`parse_headers`/… → re-export zwingend.)
-3. `sip_transport.py` extrahieren (TlsSipTransport + `_make_unverified_tls_context`).
-4. `sip_strategies.py` einführen: `SilentStrategy` + `EarlyMedia183Strategy`; `_dispatch` ruft
+2. ✅ `sip_messages.py` extrahiert; `sip_client.py` re-exportiert (Tests nutzen `sip.parse_headers` etc.). Commit.
+3. ✅ `sip_transport.py` extrahiert (SipTransport + TlsSipTransport + `_make_unverified_tls_context`); re-export für coordinator+tests. Commit. → sip_client.py 700→435 Zeilen.
+4. ⏳ `sip_strategies.py` einführen: `SilentStrategy` + `EarlyMedia183Strategy`; `_dispatch` ruft
    Strategie statt eingebetteter if-Zweige. `_build_183`/`_run_early_media_probe` → Strategie/Media.
 5. `sip_media.py`: RTP-Empfang/G.711 aus dem Probe-Code herausziehen, klar gekapselt.
 6. `api.py` → `gw_web.py` + `gw_avlink.py` + `gw_bus.py` + `gw_logtail.py`.
