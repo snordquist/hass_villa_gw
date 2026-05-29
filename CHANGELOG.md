@@ -4,6 +4,21 @@ All notable changes to this integration are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.5] — 2026-05-29
+
+### Added
+
+- **One-shot Early-Media probe** (Schritt 2, diagnostic). New disabled-by-
+  default config button *“Arm early-media probe”* arms the SIP listener to
+  reply **183 Session Progress + SDP (PCMU, recvonly)** to the **next** forked
+  ring-INVITE — **without** a 200 OK, so the call stays unanswered (no outdoor
+  talk-mode, iPhone fork untouched). It then opens a UDP socket, sends a few
+  symmetric-RTP nudge packets to the Cloud relay, and listens ~25 s for
+  early-media RTP, logging a result summary (`packets/bytes/source`). Auto-
+  disarms after one ring or 5 minutes. Probes whether the Cloud delivers the
+  outdoor-mic audio before answer — the gating question for parallel
+  audio-capture. No effect unless explicitly armed.
+
 ## [0.1.4] — 2026-05-29
 
 ### Added

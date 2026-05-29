@@ -84,7 +84,8 @@
       "hang": {"name": "Hang up"},
       "call_outdoor": {"name": "Call outdoor station"},
       "switch_camera": {"name": "Switch camera"},
-      "snapshot": {"name": "Snapshot"}
+      "snapshot": {"name": "Snapshot"},
+      "arm_early_probe": {"name": "Arm early-media probe (diag)"}
     },
     "binary_sensor": {
       "doorbell_ringing": {"name": "Doorbell ringing"},

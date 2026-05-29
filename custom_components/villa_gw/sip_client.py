@@ -188,6 +188,28 @@ def extract_invite_info(invite_msg: str) -> dict[str, str]:
     }
 
 
+def extract_remote_media(msg: str) -> tuple[str, int] | None:
+    """From an INVITE+SDP return the remote audio (ip, port).
+
+    That is the address the Cloud relay receives on for our leg — where we
+    send symmetric-RTP nudges so its NAT-aware relay latches our mapping and
+    starts sending early-media back to us. Returns None if no audio media line.
+    """
+    ip: str | None = None
+    port: int | None = None
+    for raw in msg.split("\r\n"):
+        s = raw.strip()
+        if s.startswith("c=IN IP4 ") and ip is None:
+            ip = s[len("c=IN IP4 "):].strip().split("/")[0] or None
+        elif s.startswith("m=audio "):
+            parts = s.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                port = int(parts[1])
+    if ip and port:
+        return ip, port
+    return None
+
+
 # ──────────────────────────────────────────────────────── transport protocol
 
 
@@ -234,6 +256,8 @@ class SipClient:
         transport: "SipTransport",
         on_invite: OnInvite | None = None,
         on_registered: Callable[[], None] | None = None,
+        is_probe_armed: Callable[[], bool] | None = None,
+        on_probe_result: Callable[[str], None] | None = None,
         active_invite_ttl_s: float = 60.0,
     ) -> None:
         self._server = server
@@ -241,6 +265,13 @@ class SipClient:
         self._password = password
         self._transport = transport
         self._on_invite = on_invite
+        # One-shot Early-Media probe (Schritt 2): when is_probe_armed() is True
+        # at INVITE time, reply 183 Session Progress + SDP (PCMU, recvonly) —
+        # WITHOUT a 200 OK — and listen for early-media RTP. Never answers, so
+        # the outdoor station stays out of talk-mode and the iPhone fork can
+        # still take the call. on_probe_result(summary) reports what arrived.
+        self._is_probe_armed = is_probe_armed
+        self._on_probe_result = on_probe_result
         # Fired after every successful (re-)REGISTER inside run(). Lets the
         # coordinator flip `cloud_sip_connected` True and reset its backoff
         # only on a genuine, sustained registration — not optimistically.
@@ -371,15 +402,24 @@ class SipClient:
             # and skip re-firing the on_invite callback.
             if cid in self._active_invites:
                 return
-            self._active_invites[cid] = (
-                msg, f"hass-{secrets.token_hex(4)}", now_mono,
-            )
+            local_tag = f"hass-{secrets.token_hex(4)}"
+            self._active_invites[cid] = (msg, local_tag, now_mono)
             # Full raw INVITE (incl. SDP offer) at DEBUG. Lets us inspect the
             # offered audio codec (PCMU/PCMA), SRTP (a=crypto) and media
             # c=/m= addresses for the planned audio-capture path — without
             # sending anything (routing/iPhone-fork untouched). First INVITE
             # only (retransmits already returned above).
             _LOGGER.debug("Cloud SIP INVITE (raw):\n%s", msg)
+            # One-shot Early-Media probe (Schritt 2): reply 183 + SDP and
+            # listen for early-media RTP, but NEVER 200 OK — the call stays
+            # unanswered (no door talk-mode, iPhone fork can still take it).
+            if self._is_probe_armed is not None and self._is_probe_armed():
+                try:
+                    await self._run_early_media_probe(msg, local_tag)
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Early-media probe error: %s", err)
+                    if self._on_probe_result is not None:
+                        self._on_probe_result(f"probe error: {err}")
             # Silent mode — do NOT send any SIP response. The Cloud will let
             # the parallel iPhone-fork take the call and our branch times
             # out cleanly in ~32s without affecting routing.
@@ -444,6 +484,102 @@ class SipClient:
         msg = self._buf[:total]
         self._buf = self._buf[total:]
         return msg
+
+    def _build_183(self, req_msg: str, rtp_port: int, local_tag: str) -> bytes:
+        """183 Session Progress + SDP (PCMU recvonly) — NOT a 200 OK.
+
+        Signals we can receive early media without answering the call, so the
+        outdoor station never enters talk-mode and the iPhone fork can still
+        take it.
+        """
+        lines = req_msg.split("\r\n")
+        via = next((ln for ln in lines if ln.lower().startswith("via:")), "")
+        fr = next((ln for ln in lines if ln.lower().startswith("from:")), "")
+        to = next((ln for ln in lines if ln.lower().startswith("to:")), "")
+        cid = next((ln for ln in lines if ln.lower().startswith("call-id:")), "")
+        cseq = next((ln for ln in lines if ln.lower().startswith("cseq:")), "")
+        if ";tag=" not in to:
+            to = to.rstrip() + f";tag={local_tag}"
+        ip = self._transport.local_ip
+        contact = f"sip:{self._user}@{ip}:{self._transport.local_port};transport=tls"
+        body = (
+            "v=0\r\n"
+            f"o=hass 0 0 IN IP4 {ip}\r\n"
+            "s=villa-gw-earlymedia-probe\r\n"
+            f"c=IN IP4 {ip}\r\n"
+            "t=0 0\r\n"
+            f"m=audio {rtp_port} RTP/AVP 0 101\r\n"
+            "a=rtpmap:0 PCMU/8000\r\n"
+            "a=rtpmap:101 telephone-event/8000\r\n"
+            "a=recvonly\r\n"
+        ).encode()
+        head = (
+            "SIP/2.0 183 Session Progress\r\n"
+            f"{via}\r\n{fr}\r\n{to}\r\n{cid}\r\n{cseq}\r\n"
+            f"Contact: <{contact}>\r\n"
+            f"User-Agent: {USER_AGENT}\r\n"
+            "Content-Type: application/sdp\r\n"
+            f"Content-Length: {len(body)}\r\n\r\n"
+        ).encode()
+        return head + body
+
+    async def _run_early_media_probe(self, invite_msg: str, local_tag: str) -> None:
+        """One-shot: send 183+SDP, nudge symmetric RTP, listen ~25s.
+
+        Diagnostic for Schritt 2 — does the Cloud deliver the outdoor-mic audio
+        as early media (before any 200 OK)? Never answers the call.
+        """
+        rtp_port = 40000
+        remote = extract_remote_media(invite_msg)
+        local_ip = self._transport.local_ip
+        await self._transport.send(self._build_183(invite_msg, rtp_port, local_tag))
+        _LOGGER.info(
+            "Early-media probe: 183 gesendet, höre auf %s:%d, remote-media=%s",
+            local_ip, rtp_port, remote,
+        )
+        loop = asyncio.get_event_loop()
+        stats = {"pkts": 0, "bytes": 0, "src": None}
+
+        class _RtpProto(asyncio.DatagramProtocol):
+            def datagram_received(self, data: bytes, addr: tuple) -> None:
+                stats["pkts"] += 1
+                stats["bytes"] += len(data)
+                if stats["src"] is None:
+                    stats["src"] = f"{addr[0]}:{addr[1]}"
+
+        try:
+            udp, _ = await loop.create_datagram_endpoint(
+                _RtpProto, local_addr=("0.0.0.0", rtp_port),
+            )
+        except OSError as err:
+            _LOGGER.warning("Early-media probe: UDP %d nicht bindbar: %s", rtp_port, err)
+            if self._on_probe_result is not None:
+                self._on_probe_result(f"bind failed: {err}")
+            return
+        try:
+            # Symmetric-RTP nudge so the Cloud's NAT-aware relay latches our
+            # public mapping and returns media to us.
+            if remote:
+                pkt = b"\x80\x00\x00\x01\x00\x00\x00\xa0\x00\x00\x00\x01" + b"\xff" * 160
+                for _ in range(8):
+                    try:
+                        udp.sendto(pkt, remote)
+                    except OSError:
+                        pass
+                    await asyncio.sleep(0.25)
+            await asyncio.sleep(23)
+        finally:
+            udp.close()
+        if stats["pkts"]:
+            summary = (
+                f"{stats['pkts']} RTP-Pakete / {stats['bytes']} B von "
+                f"{stats['src']} (~{stats['pkts'] / 25.0:.0f}/s) → EARLY MEDIA OK"
+            )
+        else:
+            summary = "KEIN early-media RTP empfangen (kein Early-Media oder NAT)"
+        _LOGGER.info("Early-media probe result: %s", summary)
+        if self._on_probe_result is not None:
+            self._on_probe_result(summary)
 
     async def run(self) -> None:
         """REGISTER, then process messages forever; re-REGISTER every 500s.

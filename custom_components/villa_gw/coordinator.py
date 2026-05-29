@@ -132,6 +132,12 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_cloud_check = 0.0  # monotonic ts of last /api/sip poll
         # Cloud SIP REGISTER session health — drives binary_sensor.cloud_sip_connected
         self.cloud_sip_connected = False
+        # One-shot Early-Media probe (Schritt 2). Armed via the diagnostic
+        # button; the SIP listener replies 183+SDP to the NEXT ring and
+        # measures early-media RTP. Auto-disarms after 5 min or after one ring.
+        self.early_probe_armed = False
+        self._early_probe_armed_at = 0.0
+        self.last_probe_result: str | None = None
         # Last source that fired a ring event ("sip"|"log"|"poll"|None).
         # Updated each time `_fire(EVENT_DOORBELL_RINGING, …)` actually fires
         # (not when it dedups), so the diagnostic sensor shows whichever
@@ -279,8 +285,39 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.live_view_active = False
             self.live_view_started_at = None
             changed = True
+        if (
+            self.early_probe_armed
+            and now_loop - self._early_probe_armed_at > 300.0
+        ):
+            self.early_probe_armed = False
+            _LOGGER.info("Early-media probe disarmed (5-min Timeout, kein Klingeln)")
+            changed = True
         if changed:
             self.async_set_updated_data(self.data or {})
+
+    def arm_early_media_probe(self) -> None:
+        """Arm the one-shot Early-Media probe for the NEXT incoming ring.
+
+        The SIP listener then replies 183+SDP to that one INVITE and measures
+        early-media RTP — WITHOUT answering (no 200 OK, no door talk-mode,
+        iPhone fork untouched). Auto-disarms after one ring or 5 min.
+        """
+        self.early_probe_armed = True
+        self._early_probe_armed_at = self.hass.loop.time()
+        self.last_probe_result = None
+        _LOGGER.warning(
+            "Early-media probe SCHARF — bitte jetzt EINMAL klingeln "
+            "(HA antwortet 183, nimmt NICHT an). Auto-Disarm in 5 min.",
+        )
+        self.async_set_updated_data(self.data or {})
+
+    @callback
+    def _on_probe_result(self, summary: str) -> None:
+        """Called by SipClient after the probe ran on one INVITE."""
+        self.early_probe_armed = False
+        self.last_probe_result = summary
+        _LOGGER.warning("Early-media probe ERGEBNIS: %s", summary)
+        self.async_set_updated_data(self.data or {})
 
     # ─────────────────────────────────────────── polling loop (robust path)
 
@@ -668,6 +705,8 @@ class VillaGwCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     server=server, user=user, password=password,
                     transport=transport, on_invite=self._on_sip_invite,
                     on_registered=_on_registered,
+                    is_probe_armed=lambda: self.early_probe_armed,
+                    on_probe_result=self._on_probe_result,
                 )
                 await client.run()  # registers → fires callback → loops until error
             except asyncio.CancelledError:
